@@ -81,30 +81,180 @@ local IntermediateIslands = {}
 
 if World1 then
     IntermediateIslands = {
-        {name="Sky2",      pos=Vector3.new(-4607.82, 872.58, -1667.56)},
-        {name="UnderWater",pos=Vector3.new(61163.85, 5.34, 1819.78)},
-        {name="Whirlpool", pos=Vector3.new(3864.69, 5.41, -1926.21)},
-        {name="Sky3",      pos=Vector3.new(-7894.62, 5545.49, -380.2)},
+        {
+            name = "Sky2",
+            pos = Vector3.new(-4607.82, 872.58, -1667.56),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    -- Y từ Cobalt bị lỗi format (879039...); dùng 872.039 gần portal Sky2
+                    Event:InvokeServer("requestEntrance", Vector3.new(-4607.8232421875, 872.039099121094, -1667.5570068359))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky") end)
+            end
+        },
+        {
+            name = "UnderWater",
+            pos = Vector3.new(61163.85, 5.34, 1819.78),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(61163.8515625, 11.68000793457, 1819.7840576172))
+                end)
+            end
+        },
+        {
+            name = "Whirlpool",
+            pos = Vector3.new(3864.69, 5.41, -1926.21),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(3864.6879882812, 15.7369995117188, -1926.2139892578))
+                end)
+            end
+        },
+        {
+            name = "Sky3",
+            pos = Vector3.new(-7894.62, 5545.49, -380.2),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(-7894.6181640625, 5560.1420898438, -380.29098510742))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky2") end)
+            end
+        },
     }
 elseif World2 then
     IntermediateIslands = {
-        {name="GhostShipGate",   pos=Vector3.new(-6505.30, 75.22, -126.66)},
-        {name="GhostShip",       pos=Vector3.new(923.21, 120.98, 32852.83)},
-        {name="FlamingoMansion", pos=Vector3.new(-287.53, 280.17, 597.60)},
-        {name="FlamingoRoom",    pos=Vector3.new(2284.01, 45.19, 908.03)},
+        {
+            name = "GhostShipGate",
+            pos = Vector3.new(-6505.30, 150.22, -126.66),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(-6508.5581054688, 150.035003662109, -132.83999633789))
+                end)
+            end
+        },
+        {
+            name = "GhostShip",
+            pos = Vector3.new(923.21, 170.98, 32852.83),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(923.21301269531, 170.9759979248, 32852.83203125))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Ship") end)
+            end
+        },
+        {
+            name = "FlamingoMansion",
+            pos = Vector3.new(-287.53, 350.17, 597.60),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(-286.98596191406, 350.13739013672, 597.89910888672))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Bar") end)
+            end
+        },
+        {
+            name = "FlamingoRoom",
+            pos = Vector3.new(2284.01, 150.19, 908.03),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(2284.9091796875, 50.537796020508, 905.46417236328))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "DressTown") end)
+            end
+        },
     }
 elseif World3 then
     IntermediateIslands = {
-        {name="HouseHydarIsland", pos=Vector3.new(5655, 1013, -317)},
-        {name="Mansion",          pos=Vector3.new(-12465, 459, -7561)},
-        {name="CastleOnTheSea",   pos=Vector3.new(-5083, 371, -3177)},
+        {
+            name = "HouseHydarIsland",
+            pos = Vector3.new(5661.53, 1080.41, -334.96),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function() Event:InvokeServer("GetUnlockables") end)
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(5650.9477539062, 1080.2747802734, -350.3791809082))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Hydra1") end)
+            end
+        },
+        {
+            name = "Mansion",
+            pos = Vector3.new(-12463.81, 450.95, -7550.29),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function() Event:InvokeServer("GetUnlockables") end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "BigMansion") end)
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(-12463.602539062, 400.32705688477, -7566.0830078125))
+                end)
+            end
+        },
+        {
+            name = "CastleOnTheSea",
+            pos = Vector3.new(-5047.54, 380.55, -3159.34),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function() Event:InvokeServer("GetUnlockables") end)
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(-5060.4116210938, 340.50201416016, -3193.2248535156))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "SeaCastle") end)
+            end
+        },
     }
 else
     -- Fallback về World 1 nếu không xác định được
     IntermediateIslands = {
-        {name="Sky2",      pos=Vector3.new(-4607.82, 872.58, -1667.56)},
-        {name="UnderWater",pos=Vector3.new(61163.85, 5.34, 1819.78)},
-        {name="Whirlpool", pos=Vector3.new(3864.69, 5.41, -1926.21)},
+        {
+            name = "Sky2",
+            pos = Vector3.new(-4607.82, 872.58, -1667.56),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(-4607.8232421875, 872.039099121094, -1667.5570068359))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky") end)
+            end
+        },
+        {
+            name = "UnderWater",
+            pos = Vector3.new(61163.85, 5.34, 1819.78),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(61163.8515625, 11.68000793457, 1819.7840576172))
+                end)
+            end
+        },
+        {
+            name = "Whirlpool",
+            pos = Vector3.new(3864.69, 5.41, -1926.21),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(3864.6879882812, 15.7369995117188, -1926.2139892578))
+                end)
+            end
+        },
+        {
+            name = "Sky3",
+            pos = Vector3.new(-7894.62, 5545.49, -380.2),
+            request = function()
+                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
+                pcall(function()
+                    Event:InvokeServer("requestEntrance", Vector3.new(-7894.6181640625, 5560.1420898438, -380.29098510742))
+                end)
+                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky2") end)
+            end
+        },
     }
 end
 
@@ -189,8 +339,10 @@ local _intermediateRunning  = false  -- Guard: ngăn _tp tween trong lúc đang 
 -- Sơ đồ:
 --   1. Xác định đảo trung gian gần đích nhất
 --   2. Dừng tween (cancel currentTween)
---   3. Loop spam teleport đến đảo trung gian
---   4. Delay nhỏ nếu cần (phụ thuộc khoảng cách)
+--   3. World2/3: gọi island.request() (requestEntrance remote) nếu xa đảo;
+--      nếu đã gần đảo (< 500 stud) → bỏ qua tele, để caller tween thẳng.
+--      World1 (không có request): spam CFrame như cũ.
+--   4. Delay nhỏ sau remote / spam
 --   5. Tắt _intermediateRunning → tự gọi _tp tween đến đích thật
 -- Nhận targetCF + speed để tự gọi _tp ở bước 5, không để caller gọi.
 -- Trả về true nếu đã spawn async (caller KHÔNG gọi _tp thêm),
@@ -222,6 +374,15 @@ local function doIntermediateTeleport(targetCF, speed)
     local island = getIntermediateTeleport(playerPos, targetPos)
     if not island then return false end
 
+    -- Khoảng cách XZ tới đảo trung gian
+    local distToIsland = (Vector2.new(playerPos.X, playerPos.Z) - Vector2.new(island.pos.X, island.pos.Z)).Magnitude
+
+    -- Đã gần điểm trung gian (< 500 stud) → không remote / không spam,
+    -- để caller tween thẳng đến đích (giống logic chest farm)
+    if distToIsland < 500 then
+        return false
+    end
+
     -- Đặt cờ + cooldown ngay lập tức trước khi spawn
     _intermediateRunning = true
     _lastIntermediateTele = tick()
@@ -232,26 +393,27 @@ local function doIntermediateTeleport(targetCF, speed)
         currentTweenSpeed  = 0
         currentTweenTarget = nil
 
-        -- Bước 2: Xác định thời gian spam (xa hơn → spam lâu hơn)
-        local distToIsland = (Vector2.new(playerPos.X, playerPos.Z) - Vector2.new(island.pos.X, island.pos.Z)).Magnitude
-        local spamDuration = distToIsland < 5000 and 0.3 or 2
+        print("🚀 Tele trung gian → " .. island.name .. " (dist=" .. math.floor(dist) .. ", distIsland=" .. math.floor(distToIsland) .. ")")
 
-        print("🚀 Tele trung gian → " .. island.name .. " (dist=" .. math.floor(dist) .. ")")
-
-        -- Bước 3: Loop spam teleport đến đảo trung gian
-        local deadline = tick() + spamDuration
-        while tick() < deadline do
-            local c = player.Character
-            local h = c and c:FindFirstChild("HumanoidRootPart")
-            if h then
-                h.CFrame = CFrame.new(island.pos + Vector3.new(0, 2, 0))
+        -- Bước 2+3: World2/3 có request → dùng remote requestEntrance
+        --           World1 (không request) → spam CFrame như cũ
+        if type(island.request) == "function" then
+            pcall(island.request)
+            task.wait(0.15)
+        else
+            local spamDuration = distToIsland < 5000 and 0.3 or 2
+            local deadline = tick() + spamDuration
+            while tick() < deadline do
+                local c = player.Character
+                local h = c and c:FindFirstChild("HumanoidRootPart")
+                if h then
+                    h.CFrame = CFrame.new(island.pos + Vector3.new(0, 2, 0))
+                end
+                task.wait()
             end
-            task.wait()
-        end
-
-        -- Bước 4: Delay nhỏ sau khi đến đảo trung gian (nếu cần server load)
-        if distToIsland >= 5000 then
-            task.wait(0.2)
+            if distToIsland >= 5000 then
+                task.wait(0.2)
+            end
         end
 
         -- Bước 5: Mở khoá rồi tween thẳng đến đích thật
@@ -596,7 +758,7 @@ end
 -- CÁC BIẾN CẤU HÌNH FARM (FARM SETTINGS)
 --------------------------------------------------------------------
 getgenv().BringMob = true           -- Bật tính năng kéo mob lại gần (giúp farm nhanh hơn)
-getgenv().FlySpeed = 180            -- Tốc độ bay (càng cao bay càng nhanh, nhưng dễ bị phát hiện)
+getgenv().FlySpeed = 280            -- Tốc độ bay (càng cao bay càng nhanh, nhưng dễ bị phát hiện)
 getgenv().FlyHeight = 30            -- Độ cao bay so với mob (tránh bị đánh)
 getgenv().BringRange = 350          -- Phạm vi kéo mob (khoảng cách tối đa để bring mob)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
@@ -892,13 +1054,16 @@ _G.SelectWeapon = nil
 
 -- ===== REMOVE CARD-RELATED GLOBALS (AutoPickCard features removed) =====
 
-Tabs.Settings:CreateDropdown("SpeedTween", {
+Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
-    Values = {"180","250","300","325","350"},
-    Default = 1,
-    Callback = GuardDropdown(function(v)
-        getgenv().FlySpeed = tonumber(v)
-    end),
+    Description = "Tốc độ bay / tween (0 - 300)",
+    Default = 280,
+    Min = 0,
+    Max = 300,
+    Rounding = 1,
+    Callback = function(v)
+        getgenv().FlySpeed = v
+    end,
 })
 
 
@@ -1696,11 +1861,8 @@ end
 -- LÕI FLY MỚI (_tp) - Topi Chest style, tích hợp cho Topi Hub
 -- - Khi đang tween đúng speed → để chạy tiếp, không cancel/recreate
 -- - Khi speed đổi → cancel và tạo tween mới
--- - Y-snap khi chênh lệch > YTeleportThreshold
 -- - Fly + teleport đồng thời khi dist <= 200
 -- ============================================================
-
-local YTeleportThreshold = 150
 
 local function _tp(targetCF, speed)
     if not shouldTween then return end
@@ -1711,26 +1873,7 @@ local function _tp(targetCF, speed)
 
     local dist = (targetCF.Position - hrp.Position).Magnitude
 
-    local yDiff = math.abs(targetCF.Position.Y - hrp.Position.Y)
-    if yDiff > YTeleportThreshold then
-        if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-        currentTweenSpeed  = 0
-        currentTweenTarget = nil
-        hrp.CFrame = CFrame.new(hrp.Position.X, targetCF.Position.Y, hrp.Position.Z)
-        -- Không delay: tiếp tục tween ngay sau snap
-        if not getgenv().IsFarming then return end
-        dist = (targetCF.Position - hrp.Position).Magnitude
-    end
-
     if dist < 1 then return end  -- Đã đến nơi, không cần làm gì
-
-    -- ── Gần đích (< 350 studs): teleport thẳng tới đích, chạy song song với tween ──
-    -- Không còn tăng speed như trước; teleport "kéo" nhân vật tới đích ngay lập tức,
-    -- tween bên dưới vẫn được tạo/giữ song song như bình thường.
-    if dist < 350 then
-        hrp.CFrame = targetCF
-        dist = 0
-    end
 
     -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
     -- Cancel + tạo tween mới nếu: chưa có tween, đổi speed,
@@ -1761,20 +1904,20 @@ local function TweenObject(_, cf, speed) _tp(cf, speed) end
 
 local function CalculateHeight(mobPosition)
     if getgenv().AuraFruit and _G.ChooseWP == "Blox Fruit" then
-        return mobPosition.Y + 15  -- Trang bị Fruit + bật Aura Fruit: Y+15
+        return mobPosition.Y + 10  -- Trang bị Fruit + bật Aura Fruit: Y+10
     end
     if _G.ChooseWP == "Blox Fruit" then
-        return mobPosition.Y + 15  -- Fruit: Y+15
+        return mobPosition.Y + 10  -- Fruit: Y+15
     end
     if _G.ChooseWP == "Melee" or _G.ChooseWP == "Sword" then
-        return mobPosition.Y + 25  -- Melee/Sword: Y+25
+        return mobPosition.Y + 40  -- Melee/Sword: Y+40
     end
     return mobPosition.Y + 30  -- Gun/mặc định: Y+30
 end
 
 --------------------------------------------------------------------
 -- HÀM TÍNH CFRAME FARM
--- Up:        Y+25 (Melee/Sword) / Y+30 (Gun) / Y+15 (Fruit/AuraFruit), đứng thẳng trên mob
+-- Up:        Y+40 (Melee/Sword) / Y+30 (Gun) / Y+15 (Fruit/AuraFruit), đứng thẳng trên mob
 -- AuraFruit / Blox Fruit: luôn Y+15
 --------------------------------------------------------------------
 local function GetFarmCFrame(mob)
@@ -1794,13 +1937,13 @@ local function GetFarmCFrame(mob)
 
     -- Trang bị Fruit + bật Aura Fruit: đứng sát mob X/Z, Y+15
     if getgenv().AuraFruit and _G.ChooseWP == "Blox Fruit" then
-        targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 15, mobPos.Z + OFFSET_Z)
+        targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 10, mobPos.Z + OFFSET_Z)
     elseif _G.ChooseWP == "Blox Fruit" then
-        targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 15, mobPos.Z + OFFSET_Z)
+        targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 10, mobPos.Z + OFFSET_Z)
     else
         -- Up (mặc định)
         if _G.ChooseWP == "Melee" or _G.ChooseWP == "Sword" then
-            targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 25, mobPos.Z + OFFSET_Z)
+            targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 40, mobPos.Z + OFFSET_Z)
         else
             targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 30, mobPos.Z + OFFSET_Z)
         end
@@ -2037,57 +2180,57 @@ end
 -- Chỉ áp dụng cho các khu vực có 2 quest cùng vị trí NPC (cùng PosQ).
 local DualQuestPairings = {
     -- World 1
-    JungleQuest       = {Mon="Monkey",           Qdata=1, NameMon="Monkey",           PosM=CFrame.new(-1448.5180664062,  67.853012084961,    11.465796470642)},
-    BuggyQuest1       = {Mon="Pirate",            Qdata=1, NameMon="Pirate",            PosM=CFrame.new(-1103.5134277344,  13.752052307129,  3896.0910644531)},
-    DesertQuest       = {Mon="Desert Bandit",     Qdata=1, NameMon="Desert Bandit",     PosM=CFrame.new(924.7998046875,    6.4486746788025,  4481.5859375)},
-    SnowQuest         = {Mon="Snow Bandit",       Qdata=1, NameMon="Snow Bandit",       PosM=CFrame.new(1354.3479003906,  87.272773742676, -1393.9465332031)},
-    SkyQuest          = {Mon="Sky Bandit",        Qdata=1, NameMon="Sky Bandit",        PosM=CFrame.new(-4953.20703125,   295.74420166016, -2899.2290039062)},
-    PrisonerQuest     = {Mon="Prisoner",          Qdata=1, NameMon="Prisoner",          PosM=CFrame.new(5098.9736328125,  -0.3204058110714,   474.23733520508)},
-    ColosseumQuest    = {Mon="Toga Warrior",      Qdata=1, NameMon="Toga Warrior",      PosM=CFrame.new(-1820.21484375,   51.683856964111, -2740.6650390625)},
-    MagmaQuest        = {Mon="Military Soldier",  Qdata=1, NameMon="Military Soldier",  PosM=CFrame.new(-5411.1645507812, 11.081554412842,  8454.29296875)},
-    FishmanQuest      = {Mon="Fishman Warrior",   Qdata=1, NameMon="Fishman Warrior",   PosM=CFrame.new(60878.30078125,   18.482830047607,  1543.7574462891)},
-    SkyExp2Quest      = {Mon="Royal Squad",       Qdata=1, NameMon="Royal Squad",       PosM=CFrame.new(-7624.2524414062, 5658.1333007812, -1467.3542480469)},
-    FountainQuest     = {Mon="Galley Pirate",     Qdata=1, NameMon="Galley Pirate",     PosM=CFrame.new(5551.0219726562,  78.901351928711,  3930.4128417969)},
+    JungleQuest       = {Mon="Monkey",           Qdata=1, NameMon="Monkey"},
+    BuggyQuest1       = {Mon="Pirate",            Qdata=1, NameMon="Pirate"},
+    DesertQuest       = {Mon="Desert Bandit",     Qdata=1, NameMon="Desert Bandit"},
+    SnowQuest         = {Mon="Snow Bandit",       Qdata=1, NameMon="Snow Bandit"},
+    SkyQuest          = {Mon="Sky Bandit",        Qdata=1, NameMon="Sky Bandit"},
+    PrisonerQuest     = {Mon="Prisoner",          Qdata=1, NameMon="Prisoner"},
+    ColosseumQuest    = {Mon="Toga Warrior",      Qdata=1, NameMon="Toga Warrior"},
+    MagmaQuest        = {Mon="Military Soldier",  Qdata=1, NameMon="Military Soldier"},
+    FishmanQuest      = {Mon="Fishman Warrior",   Qdata=1, NameMon="Fishman Warrior"},
+    SkyExp2Quest      = {Mon="Royal Squad",       Qdata=1, NameMon="Royal Squad"},
+    FountainQuest     = {Mon="Galley Pirate",     Qdata=1, NameMon="Galley Pirate"},
     -- World 2
-    Area1Quest        = {Mon="Raider",            Qdata=1, NameMon="Raider",            PosM=CFrame.new(-728.32672119141, 52.779319763184,  2345.7705078125)},
-    Area2Quest        = {Mon="Swan Pirate",       Qdata=1, NameMon="Swan Pirate",       PosM=CFrame.new(1068.6643066406, 137.61428833008,   1322.1060791016)},
-    MarineQuest3      = {Mon="Marine Lieutenant", Qdata=1, NameMon="Marine Lieutenant", PosM=CFrame.new(-2821.3723144531, 75.897277832031, -3070.0891113281)},
-    ZombieQuest       = {Mon="Zombie",            Qdata=1, NameMon="Zombie",            PosM=CFrame.new(-5657.7768554688, 78.969734191895,  -928.68701171875)},
-    SnowMountainQuest = {Mon="Snow Trooper",      Qdata=1, NameMon="Snow Trooper",      PosM=CFrame.new(549.14733886719, 427.38705444336,  -5563.6987304688)},
-    IceSideQuest      = {Mon="Lab Subordinate",   Qdata=1, NameMon="Lab Subordinate",   PosM=CFrame.new(-5707.4716796875, 15.951709747314, -4513.3920898438)},
-    FireSideQuest     = {Mon="Magma Ninja",       Qdata=1, NameMon="Magma Ninja",       PosM=CFrame.new(-5449.6728515625, 76.658744812012, -5808.2006835938)},
-    ShipQuest1        = {Mon="Ship Deckhand",     Qdata=1, NameMon="Ship Deckhand",     PosM=CFrame.new(1212.0111083984, 150.79205322266,  33059.24609375)},
-    ShipQuest2        = {Mon="Ship Steward",      Qdata=1, NameMon="Ship Steward",      PosM=CFrame.new(919.43853759766, 129.55599975586,  33436.03515625)},
-    FrostQuest        = {Mon="Arctic Warrior",    Qdata=1, NameMon="Arctic Warrior",    PosM=CFrame.new(5966.24609375,   62.970020294189, -6179.3828125)},
-    ForgottenQuest    = {Mon="Sea Soldier",       Qdata=1, NameMon="Sea Soldier",       PosM=CFrame.new(-3028.2236328125, 64.674514770508, -9775.4267578125)},
+    Area1Quest        = {Mon="Raider",            Qdata=1, NameMon="Raider"},
+    Area2Quest        = {Mon="Swan Pirate",       Qdata=1, NameMon="Swan Pirate"},
+    MarineQuest3      = {Mon="Marine Lieutenant", Qdata=1, NameMon="Marine Lieutenant"},
+    ZombieQuest       = {Mon="Zombie",            Qdata=1, NameMon="Zombie"},
+    SnowMountainQuest = {Mon="Snow Trooper",      Qdata=1, NameMon="Snow Trooper"},
+    IceSideQuest      = {Mon="Lab Subordinate",   Qdata=1, NameMon="Lab Subordinate"},
+    FireSideQuest     = {Mon="Magma Ninja",       Qdata=1, NameMon="Magma Ninja"},
+    ShipQuest1        = {Mon="Ship Deckhand",     Qdata=1, NameMon="Ship Deckhand"},
+    ShipQuest2        = {Mon="Ship Steward",      Qdata=1, NameMon="Ship Steward"},
+    FrostQuest        = {Mon="Arctic Warrior",    Qdata=1, NameMon="Arctic Warrior"},
+    ForgottenQuest    = {Mon="Sea Soldier",       Qdata=1, NameMon="Sea Soldier"},
     -- World 3
-    PiratePortQuest   = {Mon="Pirate Millionaire",    Qdata=1, NameMon="Pirate Millionaire",    PosM=CFrame.new(-246.00,          47.31,       5584.10)},
-    DragonCrewQuest   = {Mon="Dragon Crew Warrior",   Qdata=1, NameMon="Dragon Crew Warrior",   PosM=CFrame.new(6709.76367,       52.3442993, -1139.02966)},
-    VenomCrewQuest    = {Mon="Hydra Enforcer",        Qdata=1, NameMon="Hydra Enforcer",        PosM=CFrame.new(4547.11523,     1003.10217,     334.194824)},
-    MarineTreeIsland  = {Mon="Marine Commodore",      Qdata=1, NameMon="Marine Commodore",      PosM=CFrame.new(2519,            109,          -7633)},
-    DeepForestIsland3 = {Mon="Fishman Raider",        Qdata=1, NameMon="Fishman Raider",        PosM=CFrame.new(-10407.526367188, 331.76263427734, -8368.5166015625)},
-    DeepForestIsland  = {Mon="Forest Pirate",         Qdata=1, NameMon="Forest Pirate",         PosM=CFrame.new(-13274.478515625, 332.37814331055, -7769.5805664062)},
-    DeepForestIsland2 = {Mon="Jungle Pirate",         Qdata=1, NameMon="Jungle Pirate",         PosM=CFrame.new(-12256.16015625,  331.73828125,  -10485.836914062)},
-    HauntedQuest1     = {Mon="Reborn Skeleton",       Qdata=1, NameMon="Reborn Skeleton",       PosM=CFrame.new(-8763.7236328125, 165.72299194336,  6159.8618164062)},
-    HauntedQuest2     = {Mon="Demonic Soul",          Qdata=1, NameMon="Demonic Soul",          PosM=CFrame.new(-9505.8720703125, 172.10482788086,  6158.9931640625)},
-    NutsIslandQuest   = {Mon="Peanut Scout",          Qdata=1, NameMon="Peanut Scout",          PosM=CFrame.new(-2143.2419433594,  47.721984863281,-10029.995117188)},
-    IceCreamIslandQuest={Mon="Ice Cream Chef",        Qdata=1, NameMon="Ice Cream Chef",        PosM=CFrame.new(-872.24658203125,  65.81957244873, -10919.95703125)},
-    CakeQuest1        = {Mon="Cookie Crafter",        Qdata=1, NameMon="Cookie Crafter",        PosM=CFrame.new(-2374.13671875,    37.798263549805,-12125.30859375)},
-    CakeQuest2        = {Mon="Baking Staff",          Qdata=1, NameMon="Baking Staff",          PosM=CFrame.new(-1887.8099365234,  77.618507385254,-12998.350585938)},
-    ChocQuest1        = {Mon="Cocoa Warrior",         Qdata=1, NameMon="Cocoa Warrior",         PosM=CFrame.new(-21.553283691406,  80.574996948242,-12352.387695312)},
-    ChocQuest2        = {Mon="Sweet Thief",           Qdata=1, NameMon="Sweet Thief",           PosM=CFrame.new(165.1884765625,    76.058853149414,-12600.836914062)},
-    TikiQuest1        = {Mon="Isle Outlaw",           Qdata=1, NameMon="Isle Outlaw",           PosM=CFrame.new(-16479.900390625,  226.6117401123,   -300.31143188477)},
-    TikiQuest2        = {Mon="Sun-kissed Warrior",    Qdata=1, NameMon="kissed Warrior",        PosM=CFrame.new(-16347,            64,               984)},
-    TikiQuest3        = {Mon="Serpent Hunter",        Qdata=1, NameMon="Serpent Hunter",        PosM=CFrame.new(-16645.64,         163.09,          1352.87)},
-    SubmergedQuest1   = {Mon="Reef Bandit",           Qdata=1, NameMon="Reef Bandit",           PosM=CFrame.new(11019.1318,      -2146.06812,       9342.3916)},
-    SubmergedQuest2   = {Mon="Sea Chanter",           Qdata=1, NameMon="Sea Chanter",           PosM=CFrame.new(10671.2715,      -2057.59155,      10047.2588)},
-    SubmergedQuest3   = {Mon="High Disciple",         Qdata=1, NameMon="High Disciple",         PosM=CFrame.new(9750.41602,      -1966.93884,       9753.36035)},
+    PiratePortQuest   = {Mon="Pirate Millionaire",    Qdata=1, NameMon="Pirate Millionaire"},
+    DragonCrewQuest   = {Mon="Dragon Crew Warrior",   Qdata=1, NameMon="Dragon Crew Warrior"},
+    VenomCrewQuest    = {Mon="Hydra Enforcer",        Qdata=1, NameMon="Hydra Enforcer"},
+    MarineTreeIsland  = {Mon="Marine Commodore",      Qdata=1, NameMon="Marine Commodore"},
+    DeepForestIsland3 = {Mon="Fishman Raider",        Qdata=1, NameMon="Fishman Raider"},
+    DeepForestIsland  = {Mon="Forest Pirate",         Qdata=1, NameMon="Forest Pirate"},
+    DeepForestIsland2 = {Mon="Jungle Pirate",         Qdata=1, NameMon="Jungle Pirate"},
+    HauntedQuest1     = {Mon="Reborn Skeleton",       Qdata=1, NameMon="Reborn Skeleton"},
+    HauntedQuest2     = {Mon="Demonic Soul",          Qdata=1, NameMon="Demonic Soul"},
+    NutsIslandQuest   = {Mon="Peanut Scout",          Qdata=1, NameMon="Peanut Scout"},
+    IceCreamIslandQuest={Mon="Ice Cream Chef",        Qdata=1, NameMon="Ice Cream Chef"},
+    CakeQuest1        = {Mon="Cookie Crafter",        Qdata=1, NameMon="Cookie Crafter"},
+    CakeQuest2        = {Mon="Baking Staff",          Qdata=1, NameMon="Baking Staff"},
+    ChocQuest1        = {Mon="Cocoa Warrior",         Qdata=1, NameMon="Cocoa Warrior"},
+    ChocQuest2        = {Mon="Sweet Thief",           Qdata=1, NameMon="Sweet Thief"},
+    TikiQuest1        = {Mon="Isle Outlaw",           Qdata=1, NameMon="Isle Outlaw"},
+    TikiQuest2        = {Mon="Sun-kissed Warrior",    Qdata=1, NameMon="kissed Warrior"},
+    TikiQuest3        = {Mon="Serpent Hunter",        Qdata=1, NameMon="Serpent Hunter"},
+    SubmergedQuest1   = {Mon="Reef Bandit",           Qdata=1, NameMon="Reef Bandit"},
+    SubmergedQuest2   = {Mon="Sea Chanter",           Qdata=1, NameMon="Sea Chanter"},
+    SubmergedQuest3   = {Mon="High Disciple",         Qdata=1, NameMon="High Disciple"},
 }
 
 --// ================= QUEST DATA FUNCTION =================
 local function QuestNeta()
     local I = player.Data.Level.Value
-    local Mon, Qdata, Qname, NameMon, PosM, PosQ
+    local Mon, Qdata, Qname, NameMon, PosQ
     
     if World1 then
         if I == 1 or I <= 9 then
@@ -2096,14 +2239,12 @@ local function QuestNeta()
                 Qname = "MarineQuest"
                 Qdata = 1
                 NameMon = "Trainee"
-                PosM = CFrame.new(-2709.67944, 24.5206585, 2104.24585, -0.744724929, -3.97967455e-08, -0.667371571, 4.32403588e-08, 1, -1.07884304e-07, .667371571, -1.09201515e-07, -0.744724929)
                 PosQ = CFrame.new(-2709.67944, 24.5206585, 2104.24585, -0.744724929, -3.97967455e-08, -0.667371571, 4.32403588e-08, 1, -1.07884304e-07, .667371571, -1.09201515e-07, -0.744724929)
             elseif tostring(TeamSelf) == "Pirates" then
                 Mon = "Bandit"
                 Qdata = 1
                 Qname = "BanditQuest1"
                 NameMon = "Bandit"
-                PosM = CFrame.new(1045.9626464844, 27.002508163452, 1560.8203125)
                 PosQ = CFrame.new(1045.9626464844, 27.002508163452, 1560.8203125)
             end
         elseif I == 10 or I <= 14 then
@@ -2112,175 +2253,150 @@ local function QuestNeta()
             Qname = "JungleQuest"
             NameMon = "Monkey"
             PosQ = CFrame.new(-1598.08911, 35.5501175, 153.377838, 0, 0, 1, 0, 1, 0, -1, 0, 0)
-            PosM = CFrame.new(-1448.5180664062, 67.853012084961, 11.465796470642)
         elseif I == 15 or I <= 29 then
             Mon = "Gorilla"
             Qdata = 2
             Qname = "JungleQuest"
             NameMon = "Gorilla"
             PosQ = CFrame.new(-1598.08911, 35.5501175, 153.377838, 0, 0, 1, 0, 1, 0, -1, 0, 0)
-            PosM = CFrame.new(-1129.8836669922, 40.46354675293, -525.42370605469)
         elseif I == 30 or I <= 39 then
             Mon = "Pirate"
             Qdata = 1
             Qname = "BuggyQuest1"
             NameMon = "Pirate"
             PosQ = CFrame.new(-1141.07483, 4.10001802, 3831.5498, .965929627, 0, -0.258804798, 0, 1, 0, .258804798, 0, .965929627)
-            PosM = CFrame.new(-1103.5134277344, 13.752052307129, 3896.0910644531)
         elseif I == 40 or I <= 59 then
             Mon = "Brute"
             Qdata = 2
             Qname = "BuggyQuest1"
             NameMon = "Brute"
             PosQ = CFrame.new(-1141.07483, 4.10001802, 3831.5498, .965929627, 0, -0.258804798, 0, 1, 0, .258804798, 0, .965929627)
-            PosM = CFrame.new(-1140.0837402344, 14.809885025024, 4322.9213867188)
         elseif I == 60 or I <= 74 then
             Mon = "Desert Bandit"
             Qdata = 1
             Qname = "DesertQuest"
             NameMon = "Desert Bandit"
             PosQ = CFrame.new(894.488647, 5.14000702, 4392.43359, .819155693, 0, -0.573571265, 0, 1, 0, .573571265, 0, .819155693)
-            PosM = CFrame.new(924.7998046875, 6.4486746788025, 4481.5859375)
         elseif I == 75 or I <= 89 then
             Mon = "Desert Officer"
             Qdata = 2
             Qname = "DesertQuest"
             NameMon = "Desert Officer"
             PosQ = CFrame.new(894.488647, 5.14000702, 4392.43359, .819155693, 0, -0.573571265, 0, 1, 0, .573571265, 0, .819155693)
-            PosM = CFrame.new(1608.2822265625, 8.6142244338989, 4371.0073242188)
         elseif I == 90 or I <= 99 then
             Mon = "Snow Bandit"
             Qdata = 1
             Qname = "SnowQuest"
             NameMon = "Snow Bandit"
             PosQ = CFrame.new(1389.74451, 88.1519318, -1298.90796, -0.342042685, 0, .939684391, 0, 1, 0, -0.939684391, 0, -0.342042685)
-            PosM = CFrame.new(1354.3479003906, 87.272773742676, -1393.9465332031)
         elseif I == 100 or I <= 119 then
             Mon = "Snowman"
             Qdata = 2
             Qname = "SnowQuest"
             NameMon = "Snowman"
             PosQ = CFrame.new(1389.74451, 88.1519318, -1298.90796, -0.342042685, 0, .939684391, 0, 1, 0, -0.939684391, 0, -0.342042685)
-            PosM = CFrame.new(1200, 144, -1550)
         elseif I == 120 or I <= 149 then
             Mon = "Chief Petty Officer"
             Qdata = 1
             Qname = "MarineQuest2"
             NameMon = "Chief Petty Officer"
             PosQ = CFrame.new(-5039.58643, 27.3500385, 4324.68018, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-4881.2309570312, 22.652044296265, 4273.7524414062)
         elseif I == 150 or I <= 174 then
             Mon = "Sky Bandit"
             Qdata = 1
             Qname = "SkyQuest"
             NameMon = "Sky Bandit"
             PosQ = CFrame.new(-4839.53027, 716.368591, -2619.44165, .866007268, 0, .500031412, 0, 1, 0, -0.500031412, 0, .866007268)
-            PosM = CFrame.new(-4953.20703125, 295.74420166016, -2899.2290039062)
         elseif I == 175 or I <= 189 then
             Mon = "Dark Master"
             Qdata = 2
             Qname = "SkyQuest"
             NameMon = "Dark Master"
             PosQ = CFrame.new(-4839.53027, 716.368591, -2619.44165, .866007268, 0, .500031412, 0, 1, 0, -0.500031412, 0, .866007268)
-            PosM = CFrame.new(-5259.8447265625, 391.39767456055, -2229.0354003906)
         elseif I == 190 or I <= 209 then
             Mon = "Prisoner"
             Qdata = 1
             Qname = "PrisonerQuest"
             NameMon = "Prisoner"
             PosQ = CFrame.new(5308.93115, 1.65517521, 475.120514, -0.0894274712, -5.00292918e-09, -0.995993316, 1.60817859e-09, 1, -5.16744869e-09, .995993316, -2.06384709e-09, -0.0894274712)
-            PosM = CFrame.new(5098.9736328125, -0.3204058110714, 474.23733520508)
         elseif I == 210 or I <= 249 then
             Mon = "Dangerous Prisoner"
             Qdata = 2
             Qname = "PrisonerQuest"
             NameMon = "Dangerous Prisoner"
             PosQ = CFrame.new(5308.93115, 1.65517521, 475.120514, -0.0894274712, -5.00292918e-09, -0.995993316, 1.60817859e-09, 1, -5.16744869e-09, .995993316, -2.06384709e-09, -0.0894274712)
-            PosM = CFrame.new(5654.5634765625, 15.633401870728, 866.29919433594)
         elseif I == 250 or I <= 274 then
             Mon = "Toga Warrior"
             Qdata = 1
             Qname = "ColosseumQuest"
             NameMon = "Toga Warrior"
             PosQ = CFrame.new(-1580.04663, 6.35000277, -2986.47534, -0.515037298, 0, -0.857167721, 0, 1, 0, .857167721, 0, -0.515037298)
-            PosM = CFrame.new(-1820.21484375, 51.683856964111, -2740.6650390625)
         elseif I == 275 or I <= 299 then
             Mon = "Gladiator"
             Qdata = 2
             Qname = "ColosseumQuest"
             NameMon = "Gladiator"
             PosQ = CFrame.new(-1580.04663, 6.35000277, -2986.47534, -0.515037298, 0, -0.857167721, 0, 1, 0, .857167721, 0, -0.515037298)
-            PosM = CFrame.new(-1292.8381347656, 56.380882263184, -3339.0314941406)
         elseif I == 300 or I <= 324 then
             Mon = "Military Soldier"
             Qdata = 1
             Qname = "MagmaQuest"
             NameMon = "Military Soldier"
             PosQ = CFrame.new(-5313.37012, 10.9500084, 8515.29395, -0.499959469, 0, .866048813, 0, 1, 0, -0.866048813, 0, -0.499959469)
-            PosM = CFrame.new(-5411.1645507812, 11.081554412842, 8454.29296875)
         elseif I == 325 or I <= 374 then
             Mon = "Military Spy"
             Qdata = 2
             Qname = "MagmaQuest"
             NameMon = "Military Spy"
             PosQ = CFrame.new(-5313.37012, 10.9500084, 8515.29395, -0.499959469, 0, .866048813, 0, 1, 0, -0.866048813, 0, -0.499959469)
-            PosM = CFrame.new(-5802.8681640625, 86.262413024902, 8828.859375)
         elseif I == 375 or I <= 399 then
             Mon = "Fishman Warrior"
             Qdata = 1
             Qname = "FishmanQuest"
             NameMon = "Fishman Warrior"
             PosQ = CFrame.new(61122.65234375, 18.497442245483, 1569.3997802734)
-            PosM = CFrame.new(60878.30078125, 18.482830047607, 1543.7574462891)
         elseif I == 400 or I <= 449 then
             Mon = "Fishman Commando"
             Qdata = 2
             Qname = "FishmanQuest"
             NameMon = "Fishman Commando"
             PosQ = CFrame.new(61122.65234375, 18.497442245483, 1569.3997802734)
-            PosM = CFrame.new(61922.6328125, 18.482830047607, 1493.9343261719)
         elseif I == 450 or I <= 474 then
             Mon = "God's Guard"
             Qdata = 1
             Qname = "SkyExp1Quest"
             NameMon = "God's Guard"
             PosQ = CFrame.new(-4721.88867, 843.874695, -1949.96643, .996191859, 0, -0.0871884301, 0, 1, 0, .0871884301, 0, .996191859)
-            PosM = CFrame.new(-4710.04296875, 845.27697753906, -1927.3079833984)
         elseif I == 475 or I <= 524 then
             Mon = "Shanda"
             Qdata = 2
             Qname = "SkyExp1Quest"
             NameMon = "Shanda"
             PosQ = CFrame.new(-7859.09814, 5544.19043, -381.476196, -0.422592998, 0, .906319618, 0, 1, 0, -0.906319618, 0, -0.422592998)
-            PosM = CFrame.new(-7678.4897460938, 5566.4038085938, -497.21560668945)
         elseif I == 525 or I <= 549 then
             Mon = "Royal Squad"
             Qdata = 1
             Qname = "SkyExp2Quest"
             NameMon = "Royal Squad"
             PosQ = CFrame.new(-7906.81592, 5634.6626, -1411.99194, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-7624.2524414062, 5658.1333007812, -1467.3542480469)
         elseif I == 550 or I <= 624 then
             Mon = "Royal Soldier"
             Qdata = 2
             Qname = "SkyExp2Quest"
             NameMon = "Royal Soldier"
             PosQ = CFrame.new(-7906.81592, 5634.6626, -1411.99194, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-7836.7534179688, 5645.6640625, -1790.6236572266)
         elseif I == 625 or I <= 649 then
             Mon = "Galley Pirate"
             Qdata = 1
             Qname = "FountainQuest"
             NameMon = "Galley Pirate"
             PosQ = CFrame.new(5259.81982, 37.3500175, 4050.0293, .087131381, 0, .996196866, 0, 1, 0, -0.996196866, 0, .087131381)
-            PosM = CFrame.new(5551.0219726562, 78.901351928711, 3930.4128417969)
         elseif I >= 650 and I <= 699 then
             Mon = "Galley Captain"
             Qdata = 2
             Qname = "FountainQuest"
             NameMon = "Galley Captain"
             PosQ = CFrame.new(5259.81982, 37.3500175, 4050.0293, .087131381, 0, .996196866, 0, 1, 0, -0.996196866, 0, .087131381)
-            PosM = CFrame.new(5441.9516601562, 42.502059936523, 4950.09375)
         end
     elseif World2 then
         if I == 700 or I <= 724 then
@@ -2289,154 +2405,132 @@ local function QuestNeta()
             Qname = "Area1Quest"
             NameMon = "Raider"
             PosQ = CFrame.new(-429.543518, 71.7699966, 1836.18188, -0.22495985, 0, -0.974368095, 0, 1, 0, .974368095, 0, -0.22495985)
-            PosM = CFrame.new(-728.32672119141, 52.779319763184, 2345.7705078125)
         elseif I == 725 or I <= 774 then
             Mon = "Mercenary"
             Qdata = 2
             Qname = "Area1Quest"
             NameMon = "Mercenary"
             PosQ = CFrame.new(-429.543518, 71.7699966, 1836.18188, -0.22495985, 0, -0.974368095, 0, 1, 0, .974368095, 0, -0.22495985)
-            PosM = CFrame.new(-1004.3244018555, 80.158866882324, 1424.6193847656)
         elseif I == 775 or I <= 799 then
             Mon = "Swan Pirate"
             Qdata = 1
             Qname = "Area2Quest"
             NameMon = "Swan Pirate"
             PosQ = CFrame.new(638.43811, 71.769989, 918.282898, .139203906, 0, .99026376, 0, 1, 0, -0.99026376, 0, .139203906)
-            PosM = CFrame.new(1068.6643066406, 137.61428833008, 1322.1060791016)
         elseif I == 800 or I <= 874 then
             Mon = "Factory Staff"
             Qname = "Area2Quest"
             Qdata = 2
             NameMon = "Factory Staff"
             PosQ = CFrame.new(632.698608, 73.1055908, 918.666321, -0.0319722369, 8.96074881e-10, -0.999488771, 1.36326533e-10, 1, 8.92172336e-10, .999488771, -1.07732087e-10, -0.0319722369)
-            PosM = CFrame.new(73.078674316406, 81.863441467285, -27.470672607422)
         elseif I == 875 or I <= 899 then
             Mon = "Marine Lieutenant"
             Qdata = 1
             Qname = "MarineQuest3"
             NameMon = "Marine Lieutenant"
             PosQ = CFrame.new(-2440.79639, 71.7140732, -3216.06812, .866007268, 0, .500031412, 0, 1, 0, -0.500031412, 0, .866007268)
-            PosM = CFrame.new(-2821.3723144531, 75.897277832031, -3070.0891113281)
         elseif I == 900 or I <= 949 then
             Mon = "Marine Captain"
             Qdata = 2
             Qname = "MarineQuest3"
             NameMon = "Marine Captain"
             PosQ = CFrame.new(-2440.79639, 71.7140732, -3216.06812, .866007268, 0, .500031412, 0, 1, 0, -0.500031412, 0, .866007268)
-            PosM = CFrame.new(-1861.2310791016, 80.176582336426, -3254.6975097656)
         elseif I == 950 or I <= 974 then
             Mon = "Zombie"
             Qdata = 1
             Qname = "ZombieQuest"
             NameMon = "Zombie"
             PosQ = CFrame.new(-5497.06152, 47.5923004, -795.237061, -0.29242146, 0, -0.95628953, 0, 1, 0, .95628953, 0, -0.29242146)
-            PosM = CFrame.new(-5657.7768554688, 78.969734191895, -928.68701171875)
         elseif I == 975 or I <= 999 then
             Mon = "Vampire"
             Qdata = 2
             Qname = "ZombieQuest"
             NameMon = "Vampire"
             PosQ = CFrame.new(-5497.06152, 47.5923004, -795.237061, -0.29242146, 0, -0.95628953, 0, 1, 0, .95628953, 0, -0.29242146)
-            PosM = CFrame.new(-6037.66796875, 32.184638977051, -1340.6597900391)
         elseif I == 1000 or I <= 1049 then
             Mon = "Snow Trooper"
             Qdata = 1
             Qname = "SnowMountainQuest"
             NameMon = "Snow Trooper"
             PosQ = CFrame.new(609.858826, 400.119904, -5372.25928, -0.374604106, 0, .92718488, 0, 1, 0, -0.92718488, 0, -0.374604106)
-            PosM = CFrame.new(549.14733886719, 427.38705444336, -5563.6987304688)
         elseif I == 1050 or I <= 1099 then
             Mon = "Winter Warrior"
             Qdata = 2
             Qname = "SnowMountainQuest"
             NameMon = "Winter Warrior"
             PosQ = CFrame.new(609.858826, 400.119904, -5372.25928, -0.374604106, 0, .92718488, 0, 1, 0, -0.92718488, 0, -0.374604106)
-            PosM = CFrame.new(1142.7451171875, 475.63980102539, -5199.4165039062)
         elseif I == 1100 or I <= 1124 then
             Mon = "Lab Subordinate"
             Qdata = 1
             Qname = "IceSideQuest"
             NameMon = "Lab Subordinate"
             PosQ = CFrame.new(-6064.06885, 15.2422857, -4902.97852, .453972578, 0, -0.891015649, 0, 1, 0, .891015649, 0, .453972578)
-            PosM = CFrame.new(-5707.4716796875, 15.951709747314, -4513.3920898438)
         elseif I == 1125 or I <= 1174 then
             Mon = "Horned Warrior"
             Qdata = 2
             Qname = "IceSideQuest"
             NameMon = "Horned Warrior"
             PosQ = CFrame.new(-6064.06885, 15.2422857, -4902.97852, .453972578, 0, -0.891015649, 0, 1, 0, .891015649, 0, .453972578)
-            PosM = CFrame.new(-6341.3666992188, 15.951770782471, -5723.162109375)
         elseif I == 1175 or I <= 1199 then
             Mon = "Magma Ninja"
             Qdata = 1
             Qname = "FireSideQuest"
             NameMon = "Magma Ninja"
             PosQ = CFrame.new(-5428.03174, 15.0622921, -5299.43457, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
-            PosM = CFrame.new(-5449.6728515625, 76.658744812012, -5808.2006835938)
         elseif I == 1200 or I <= 1249 then
             Mon = "Lava Pirate"
             Qdata = 2
             Qname = "FireSideQuest"
             NameMon = "Lava Pirate"
             PosQ = CFrame.new(-5428.03174, 15.0622921, -5299.43457, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
-            PosM = CFrame.new(-5213.3315429688, 49.737880706787, -4701.451171875)
         elseif I == 1250 or I <= 1274 then
             Mon = "Ship Deckhand"
             Qdata = 1
             Qname = "ShipQuest1"
             NameMon = "Ship Deckhand"
             PosQ = CFrame.new(1037.80127, 125.092171, 32911.6016)
-            PosM = CFrame.new(1212.0111083984, 150.79205322266, 33059.24609375)
         elseif I == 1275 or I <= 1299 then
             Mon = "Ship Engineer"
             Qdata = 2
             Qname = "ShipQuest1"
             NameMon = "Ship Engineer"
             PosQ = CFrame.new(1037.80127, 125.092171, 32911.6016)
-            PosM = CFrame.new(919.47863769531, 43.544013977051, 32779.96875)
         elseif I == 1300 or I <= 1324 then
             Mon = "Ship Steward"
             Qdata = 1
             Qname = "ShipQuest2"
             NameMon = "Ship Steward"
             PosQ = CFrame.new(968.80957, 125.092171, 33244.125)
-            PosM = CFrame.new(919.43853759766, 129.55599975586, 33436.03515625)
         elseif I == 1325 or I <= 1349 then
             Mon = "Ship Officer"
             Qdata = 2
             Qname = "ShipQuest2"
             NameMon = "Ship Officer"
             PosQ = CFrame.new(968.80957, 125.092171, 33244.125)
-            PosM = CFrame.new(1036.0179443359, 181.4390411377, 33315.7265625)
         elseif I == 1350 or I <= 1374 then
             Mon = "Arctic Warrior"
             Qdata = 1
             Qname = "FrostQuest"
             NameMon = "Arctic Warrior"
             PosQ = CFrame.new(5667.6582, 26.7997818, -6486.08984, -0.933587909, 0, -0.358349502, 0, 1, 0, .358349502, 0, -0.933587909)
-            PosM = CFrame.new(5966.24609375, 62.970020294189, -6179.3828125)
         elseif I == 1375 or I <= 1424 then
             Mon = "Snow Lurker"
             Qdata = 2
             Qname = "FrostQuest"
             NameMon = "Snow Lurker"
             PosQ = CFrame.new(5667.6582, 26.7997818, -6486.08984, -0.933587909, 0, -0.358349502, 0, 1, 0, .358349502, 0, -0.933587909)
-            PosM = CFrame.new(5407.0737304688, 69.194374084473, -6880.8803710938)
         elseif I == 1425 or I <= 1449 then
             Mon = "Sea Soldier"
             Qdata = 1
             Qname = "ForgottenQuest"
             NameMon = "Sea Soldier"
             PosQ = CFrame.new(-3054.44458, 235.544281, -10142.8193, .990270376, 0, -0.13915664, 0, 1, 0, .13915664, 0, .990270376)
-            PosM = CFrame.new(-3028.2236328125, 64.674514770508, -9775.4267578125)
         elseif I >= 1450 and I <= 1499 then
             Mon = "Water Fighter"
             Qdata = 2
             Qname = "ForgottenQuest"
             NameMon = "Water Fighter"
             PosQ = CFrame.new(-3054.44458, 235.544281, -10142.8193, .990270376, 0, -0.13915664, 0, 1, 0, .13915664, 0, .990270376)
-            PosM = CFrame.new(-3352.9013671875, 285.01556396484, -10534.841796875)
         end
     elseif World3 then
         if I == 1500 or I <= 1524 then
@@ -2445,237 +2539,203 @@ local function QuestNeta()
             Qname = "PiratePortQuest"
             NameMon = "Pirate Millionaire"
             PosQ = CFrame.new(-290.07, 42.90, 5581.59)
-            PosM = CFrame.new(-246.00, 47.31, 5584.10)
         elseif I == 1525 or I <= 1574 then
             Mon = "Pistol Billionaire"
             Qdata = 2
             Qname = "PiratePortQuest"
             NameMon = "Pistol Billionaire"
             PosQ = CFrame.new(-290.07, 42.90, 5581.59)
-            PosM = CFrame.new(-187.33, 86.24, 6013.51)
         elseif I == 1575 or I <= 1599 then
             Mon = "Dragon Crew Warrior"
             Qdata = 1
             Qname = "DragonCrewQuest"
             NameMon = "Dragon Crew Warrior"
             PosQ = CFrame.new(6737.06055,127.417763,-712.300659,-0.463954359,-7.19574755e-09,0.885859072,7.69187665e-08,1,4.84078626e-08,-0.885859072,9.05982276e-08,-0.463954359)
-            PosM = CFrame.new(6709.76367,52.3442993,-1139.02966,-0.763515472,0,0.645789504,0,1,0,-0.645789504,0,-0.763515472)
         elseif I == 1600 or I <= 1624 then
             Mon = "Dragon Crew Archer"
             Qdata = 2
             Qname = "DragonCrewQuest"
             NameMon = "Dragon Crew Archer"
             PosQ = CFrame.new(6737.06055,127.417763,-712.300659,-0.463954359,-7.19574755e-09,0.885859072,7.69187665e-08,1,4.84078626e-08,-0.885859072,9.05982276e-08,-0.463954359)
-            PosM = CFrame.new(6668.76172,481.376923,329.12207,-0.121787429,0,-0.992556155,0,1,0,0.992556155,0,-0.121787429)
         elseif I == 1625 or I <= 1649 then
             Mon = "Hydra Enforcer"
             Qname = "VenomCrewQuest"
             Qdata = 1
             NameMon = "Hydra Enforcer"
             PosQ = CFrame.new(5206.40185546875, 1004.10498046875, 748.3504638671875)
-            PosM = CFrame.new(4547.11523, 1003.10217, 334.194824, 0.388810456, -0, -0.921317935, 0, 1, -0, 0.921317935, 0, 0.388810456)
         elseif I == 1650 or I <= 1699 then
             Mon = "Venomous Assailant"
             Qname = "VenomCrewQuest"
             Qdata = 2
             NameMon = "Venomous Assailant"
             PosQ = CFrame.new(5206.40185546875, 1004.10498046875, 748.3504638671875)
-            PosM = CFrame.new(4674.92676, 1134.82654, 996.308838, 0.731321394, -0, -0.682033002, 0, 1, -0, 0.682033002, 0, 0.731321394)
         elseif I == 1700 or I <= 1724 then
             Mon = "Marine Commodore"
             Qdata = 1
             Qname = "MarineTreeIsland"
             NameMon = "Marine Commodore"
             PosQ = CFrame.new(2482, 74, -6788)
-            PosM = CFrame.new(2519, 109, -7633)
         elseif I == 1725 or I <= 1774 then
             Mon = "Marine Rear Admiral"
             NameMon = "Marine Rear Admiral"
             Qname = "MarineTreeIsland"
             Qdata = 2
             PosQ = CFrame.new(2482, 74, -6788)
-            PosM = CFrame.new(3722, 169, -7038)
         elseif I == 1775 or I <= 1799 then
             Mon = "Fishman Raider"
             Qdata = 1
             Qname = "DeepForestIsland3"
             NameMon = "Fishman Raider"
             PosQ = CFrame.new(-10581.6563, 330.872955, -8761.18652, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
-            PosM = CFrame.new(-10407.526367188, 331.76263427734, -8368.5166015625)
         elseif I == 1800 or I <= 1824 then
             Mon = "Fishman Captain"
             Qdata = 2
             Qname = "DeepForestIsland3"
             NameMon = "Fishman Captain"
             PosQ = CFrame.new(-10581.6563, 330.872955, -8761.18652, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
-            PosM = CFrame.new(-10994.701171875, 352.38140869141, -9002.1103515625)
         elseif I == 1825 or I <= 1849 then
             Mon = "Forest Pirate"
             Qdata = 1
             Qname = "DeepForestIsland"
             NameMon = "Forest Pirate"
             PosQ = CFrame.new(-13234.04, 331.488495, -7625.40137, .707134247, 0, -0.707079291, 0, 1, 0, .707079291, 0, .707134247)
-            PosM = CFrame.new(-13274.478515625, 332.37814331055, -7769.5805664062)
         elseif I == 1850 or I <= 1899 then
             Mon = "Mythological Pirate"
             Qdata = 2
             Qname = "DeepForestIsland"
             NameMon = "Mythological Pirate"
             PosQ = CFrame.new(-13234.04, 331.488495, -7625.40137, .707134247, 0, -0.707079291, 0, 1, 0, .707079291, 0, .707134247)
-            PosM = CFrame.new(-13680.607421875, 501.08154296875, -6991.189453125)
         elseif I == 1900 or I <= 1924 then
             Mon = "Jungle Pirate"
             Qdata = 1
             Qname = "DeepForestIsland2"
             NameMon = "Jungle Pirate"
             PosQ = CFrame.new(-12680.3818, 389.971039, -9902.01953, -0.0871315002, 0, .996196866, 0, 1, 0, -0.996196866, 0, -0.0871315002)
-            PosM = CFrame.new(-12256.16015625, 331.73828125, -10485.836914062)
         elseif I == 1925 or I <= 1974 then
             Mon = "Musketeer Pirate"
             Qdata = 2
             Qname = "DeepForestIsland2"
             NameMon = "Musketeer Pirate"
             PosQ = CFrame.new(-12680.3818, 389.971039, -9902.01953, -0.0871315002, 0, .996196866, 0, 1, 0, -0.996196866, 0, -0.0871315002)
-            PosM = CFrame.new(-13457.904296875, 391.54565429688, -9859.177734375)
         elseif I == 1975 or I <= 1999 then
             Mon = "Reborn Skeleton"
             Qdata = 1
             Qname = "HauntedQuest1"
             NameMon = "Reborn Skeleton"
             PosQ = CFrame.new(-9479.2168, 141.215088, 5566.09277, 0, 0, 1, 0, 1, 0, -1, 0, 0)
-            PosM = CFrame.new(-8763.7236328125, 165.72299194336, 6159.8618164062)
         elseif I == 2000 or I <= 2024 then
             Mon = "Living Zombie"
             Qdata = 2
             Qname = "HauntedQuest1"
             NameMon = "Living Zombie"
             PosQ = CFrame.new(-9479.2168, 141.215088, 5566.09277, 0, 0, 1, 0, 1, 0, -1, 0, 0)
-            PosM = CFrame.new(-10144.131835938, 138.6266784668, 5838.0888671875)
         elseif I == 2025 or I <= 2049 then
             Mon = "Demonic Soul"
             Qdata = 1
             Qname = "HauntedQuest2"
             NameMon = "Demonic Soul"
             PosQ = CFrame.new(-9516.99316, 172.017181, 6078.46533, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-9505.8720703125, 172.10482788086, 6158.9931640625)
         elseif I == 2050 or I <= 2074 then
             Mon = "Posessed Mummy"
             Qdata = 2
             Qname = "HauntedQuest2"
             NameMon = "Posessed Mummy"
             PosQ = CFrame.new(-9516.99316, 172.017181, 6078.46533, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-9582.0224609375, 6.2515273094177, 6205.478515625)
         elseif I == 2075 or I <= 2099 then
             Mon = "Peanut Scout"
             Qdata = 1
             Qname = "NutsIslandQuest"
             NameMon = "Peanut Scout"
             PosQ = CFrame.new(-2104.3908691406, 38.104167938232, -10194.21875, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-2143.2419433594, 47.721984863281, -10029.995117188)
         elseif I == 2100 or I <= 2124 then
             Mon = "Peanut President"
             Qdata = 2
             Qname = "NutsIslandQuest"
             NameMon = "Peanut President"
             PosQ = CFrame.new(-2104.3908691406, 38.104167938232, -10194.21875, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-1859.3540039062, 38.103168487549, -10422.4296875)
         elseif I == 2125 or I <= 2149 then
             Mon = "Ice Cream Chef"
             Qdata = 1
             Qname = "IceCreamIslandQuest"
             NameMon = "Ice Cream Chef"
             PosQ = CFrame.new(-820.64825439453, 65.819526672363, -10965.795898438, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-872.24658203125, 65.81957244873, -10919.95703125)
         elseif I == 2150 or I <= 2199 then
             Mon = "Ice Cream Commander"
             Qdata = 2
             Qname = "IceCreamIslandQuest"
             NameMon = "Ice Cream Commander"
             PosQ = CFrame.new(-820.64825439453, 65.819526672363, -10965.795898438, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-558.06103515625, 112.04895782471, -11290.774414062)
         elseif I == 2200 or I <= 2224 then
             Mon = "Cookie Crafter"
             Qdata = 1
             Qname = "CakeQuest1"
             NameMon = "Cookie Crafter"
             PosQ = CFrame.new(-2021.32007, 37.7982254, -12028.7295, .957576931, -8.80302053e-08, .288177818, 6.9301187e-08, 1, 7.51931211e-08, -0.288177818, -5.2032135e-08, .957576931)
-            PosM = CFrame.new(-2374.13671875, 37.798263549805, -12125.30859375)
         elseif I == 2225 or I <= 2249 then
             Mon = "Cake Guard"
             Qdata = 2
             Qname = "CakeQuest1"
             NameMon = "Cake Guard"
             PosQ = CFrame.new(-2021.32007, 37.7982254, -12028.7295, .957576931, -8.80302053e-08, .288177818, 6.9301187e-08, 1, 7.51931211e-08, -0.288177818, -5.2032135e-08, .957576931)
-            PosM = CFrame.new(-1598.3070068359, 43.773197174072, -12244.581054688)
         elseif I == 2250 or I <= 2274 then
             Mon = "Baking Staff"
             Qdata = 1
             Qname = "CakeQuest2"
             NameMon = "Baking Staff"
             PosQ = CFrame.new(-1927.91602, 37.7981339, -12842.5391, -0.96804446, 4.22142143e-08, .250778586, 4.74911062e-08, 1, 1.49904711e-08, -0.250778586, 2.64211941e-08, -0.96804446)
-            PosM = CFrame.new(-1887.8099365234, 77.618507385254, -12998.350585938)
         elseif I == 2275 or I <= 2299 then
             Mon = "Head Baker"
             Qdata = 2
             Qname = "CakeQuest2"
             NameMon = "Head Baker"
             PosQ = CFrame.new(-1927.91602, 37.7981339, -12842.5391, -0.96804446, 4.22142143e-08, .250778586, 4.74911062e-08, 1, 1.49904711e-08, -0.250778586, 2.64211941e-08, -0.96804446)
-            PosM = CFrame.new(-2216.1882324219, 82.884521484375, -12869.293945312)
         elseif I == 2300 or I <= 2324 then
             Mon = "Cocoa Warrior"
             Qdata = 1
             Qname = "ChocQuest1"
             NameMon = "Cocoa Warrior"
             PosQ = CFrame.new(233.22836303711, 29.876001358032, -12201.233398438)
-            PosM = CFrame.new(-21.553283691406, 80.574996948242, -12352.387695312)
         elseif I == 2325 or I <= 2349 then
             Mon = "Chocolate Bar Battler"
             Qdata = 2
             Qname = "ChocQuest1"
             NameMon = "Chocolate Bar Battler"
             PosQ = CFrame.new(233.22836303711, 29.876001358032, -12201.233398438)
-            PosM = CFrame.new(582.59057617188, 77.188095092773, -12463.162109375)
         elseif I == 2350 or I <= 2374 then
             Mon = "Sweet Thief"
             Qdata = 1
             Qname = "ChocQuest2"
             NameMon = "Sweet Thief"
             PosQ = CFrame.new(150.50663757324, 30.693693161011, -12774.502929688)
-            PosM = CFrame.new(165.1884765625, 76.058853149414, -12600.836914062)
         elseif I == 2375 or I <= 2399 then
             Mon = "Candy Rebel"
             Qdata = 2
             Qname = "ChocQuest2"
             NameMon = "Candy Rebel"
             PosQ = CFrame.new(150.50663757324, 30.693693161011, -12774.502929688)
-            PosM = CFrame.new(134.86563110352, 77.247680664062, -12876.547851562)
         elseif I == 2400 or I <= 2449 then
             Mon = "Candy Pirate"
             Qdata = 1
             Qname = "CandyQuest1"
             NameMon = "Candy Pirate"
             PosQ = CFrame.new(-1150.0400390625, 20.378934860229, -14446.334960938)
-            PosM = CFrame.new(-1310.5003662109, 26.016523361206, -14562.404296875)
         elseif I == 2450 or I <= 2474 then
             Mon = "Isle Outlaw"
             Qdata = 1
             Qname = "TikiQuest1"
             NameMon = "Isle Outlaw"
             PosQ = CFrame.new(-16548.8164, 55.6059914, -172.8125, .213092566, 0, -0.977032006, 0, 1, 0, .977032006, 0, .213092566)
-            PosM = CFrame.new(-16479.900390625, 226.6117401123, -300.31143188477)
         elseif I == 2475 or I <= 2499 then
             Mon = "Island Boy"
             Qdata = 2
             Qname = "TikiQuest1"
             NameMon = "Island Boy"
             PosQ = CFrame.new(-16548.8164, 55.6059914, -172.8125, .213092566, 0, -0.977032006, 0, 1, 0, .977032006, 0, .213092566)
-            PosM = CFrame.new(-16849.396484375, 192.86505126953, -150.78532409668)
         elseif I == 2500 or I <= 2524 then
             Mon = "Sun-kissed Warrior"
             Qdata = 1
             Qname = "TikiQuest2"
             NameMon = "kissed Warrior"
-            PosM = CFrame.new(-16347, 64, 984)
             PosQ = CFrame.new(-16538, 55, 1049)
         elseif I == 2525 or I <= 2550 then
             Mon = "Isle Champion"
@@ -2683,63 +2743,54 @@ local function QuestNeta()
             Qname = "TikiQuest2"
             NameMon = "Isle Champion"
             PosQ = CFrame.new(-16541.0215, 57.3082275, 1051.46118, .0410757065, 0, -0.999156058, 0, 1, 0, .999156058, 0, .0410757065)
-            PosM = CFrame.new(-16602.1015625, 130.38734436035, 1087.2456054688)
         elseif I == 2551 or I <= 2574 then
             Mon = "Serpent Hunter"
             Qdata = 1
             Qname = "TikiQuest3"
             NameMon = "Serpent Hunter"
             PosQ = CFrame.new(-16668.03,105.32,1568.60)
-            PosM = CFrame.new(-16645.64,163.09,1352.87)
         elseif I >= 2575 and I <= 2599 then 
             Mon = "Skull Slayer"
             Qdata = 2
             Qname = "TikiQuest3"
             NameMon = "Skull Slayer"
             PosQ = CFrame.new(-16668.03,105.32,1568.60)
-            PosM = CFrame.new(-16709.49,419.68,1751.09)
         elseif I >= 2600 and I <= 2624 then
             Mon = "Reef Bandit"
             Qdata = 1
             Qname = "SubmergedQuest1"
             NameMon = "Reef Bandit"
             PosQ = CFrame.new(10778.875, -2087.72437, 9265.18359, 0.934615612, -9.33109447e-08, -0.355659455, 9.17655143e-08, 1, -2.12154276e-08, 0.355659455, -1.28090019e-08, 0.934615612)
-            PosM = CFrame.new(11019.1318, -2146.06812, 9342.3916, -0.719955266, -1.74275385e-08, 0.69402045, 5.76556367e-08, 1, 8.49211546e-08, -0.69402045, 1.01153624e-07, -0.719955266)
         elseif I >= 2625 and I <= 2649 then
             Mon = "Coral Pirate"
             Qdata = 2
             Qname = "SubmergedQuest1"
             NameMon = "Coral Pirate"
             PosQ = CFrame.new(10778.875, -2087.72437, 9265.18359, 0.934615612, -9.33109447e-08, -0.355659455, 9.17655143e-08, 1, -2.12154276e-08, 0.355659455, -1.28090019e-08, 0.934615612)
-            PosM = CFrame.new(10808.6006, -2030.36145, 9364.2334, -0.775185347, -0.0359364748, 0.6307109, 0.0615428537, 0.989336014, 0.132010356, -0.628728986, 0.141148239, -0.764707148)
         elseif I >= 2650 and I <= 2674 then
             Mon = "Sea Chanter"
             Qdata = 1
             Qname = "SubmergedQuest2"
             NameMon = "Sea Chanter"
             PosQ = CFrame.new(10880.6855, -2086.20044, 10032.624, -0.321384728, 9.87648434e-08, -0.946948707, 7.13271007e-08, 1, 8.00902953e-08, 0.946948707, -4.18033075e-08, -0.321384728)
-            PosM = CFrame.new(10671.2715, -2057.59155, 10047.2588, -0.846484065, -3.11045447e-08, 0.532414079, -5.55383117e-08, 1, -2.98785316e-08, -0.532414079, -5.48610757e-08, -0.846484065)
         elseif I >= 2675 and I <= 2699 then
             Mon = "Ocean Prophet"
             Qdata = 2
             Qname = "SubmergedQuest2"
             NameMon = "Ocean Prophet"
             PosQ = CFrame.new(10880.6855, -2086.20044, 10032.624, -0.321384728, 9.87648434e-08, -0.946948707, 7.13271007e-08, 1, 8.00902953e-08, 0.946948707, -4.18033075e-08, -0.321384728)
-            PosM = CFrame.new(11008.5195, -2007.72839, 10223.0791, -0.688615739, 2.33523378e-09, -0.725126445, 2.99292546e-09, 1, 3.78221315e-10, 0.725126445, -1.90980032e-09, -0.688615739)
         elseif I >= 2700 and I <= 2724 then
             Mon = "High Disciple"
             Qdata = 1
             Qname = "SubmergedQuest3"
             NameMon = "High Disciple"
             PosQ = CFrame.new(9640.08789, -1992.44507, 9613.65234, -0.957327187, 4.11991223e-08, 0.289006323, 1.5775445e-08, 1, -9.02985846e-08, -0.289006323, -8.18860855e-08, -0.957327187)
-            PosM = CFrame.new(9750.41602, -1966.93884, 9753.36035, -0.749824047, 5.57797613e-08, -0.661637306, 2.03500754e-08, 1, 6.1243199e-08, 0.661637306, 3.24572511e-08, -0.749824047)
         elseif I >= 2725 then
             Mon = "Grand Devotee"
             Qdata = 2
             Qname = "SubmergedQuest3"
             NameMon = "Grand Devotee"
             PosQ = CFrame.new(9640.08789, -1992.44507, 9613.65234, -0.957327187, 4.11991223e-08, 0.289006323, 1.5775445e-08, 1, -9.02985846e-08, -0.289006323, -8.18860855e-08, -0.957327187)
-            PosM = CFrame.new(9611.70508, -1993.47119, 9882.68848, -0.591375351, 4.14332426e-08, -0.806396425, 4.73774868e-08, 1, 1.66361875e-08, 0.806396425, -2.83668058e-08, -0.591375351)
         end
     end
     
@@ -2749,7 +2800,7 @@ local function QuestNeta()
         altData = DualQuestPairings[Qname]
     end
     
-    return Mon, Qdata, Qname, NameMon, PosM, PosQ, altData
+    return Mon, Qdata, Qname, NameMon, PosQ, altData
 end
 
 --// ================= TELEPORT & SUBMERGED =================
@@ -2981,7 +3032,8 @@ function startLevelFarm()
     local _spawnPoints    = nil  -- danh sách CFrame lấy từ workspace._WorldOrigin.EnemySpawns
     local _spawnIndex     = 1    -- chỉ số điểm spawn hiện tại
     local _spawnLastMon   = nil  -- tên mob lần trước để rebuild khi đổi khu
-    local _spawnArrivedAt = 0    -- tick() khi đến điểm spawn (để delay 2s trước khi đổi điểm)
+    local _spawnArrivedAt = 0    -- tick() khi đến điểm spawn (để delay trước khi đổi điểm)
+    local _spawnRefreshAt = 0    -- tick() lần quét lại EnemySpawns gần nhất (check liên tục)
     local _questArrivedAt = 0    -- tick() khi đến gần PosQ (để delay 2s trước khi nhận quest)
 
     levelFarmConn = RunService.Heartbeat:Connect(function(dt)
@@ -2991,7 +3043,7 @@ function startLevelFarm()
             local root = getRoot()
             if not root then return end
             
-            local Mon, Qdata, Qname, NameMon, PosM, PosQ, altData = QuestNeta()
+            local Mon, Qdata, Qname, NameMon, PosQ, altData = QuestNeta()
             if not Mon then return end
             
             local questUI      = player.PlayerGui.Main.Quest
@@ -3058,13 +3110,11 @@ function startLevelFarm()
             local QuestTitle  = questUI.Container.QuestTitle.Title.Text
             local activeMon   = Mon
             local activeNameMon = NameMon
-            local activePosM  = PosM
 
             if altData and string.find(QuestTitle, altData.NameMon) then
                 -- Quest thấp (altData) đang hoạt động
                 activeMon       = altData.Mon
                 activeNameMon   = altData.NameMon
-                activePosM      = altData.PosM
             elseif not string.find(QuestTitle, NameMon) then
                 -- Tiêu đề không khớp quest cao lẫn quest thấp → sai quest, hủy
                 if not (altData and string.find(QuestTitle, altData.NameMon)) then
@@ -3087,14 +3137,23 @@ function startLevelFarm()
                     AttackEnemy(enemy)
                 end
             else
-                -- Không có mob → fly lần lượt qua các EnemySpawn thực tế của mob đang farm
+                -- Không có mob → check liên tục EnemySpawns (tên trùng 100% với mob quest)
                 getgenv().CurrentTargetMob = nil
 
-                -- Rebuild danh sách spawn khi đổi mob (lên lv đổi khu vực)
-                if _spawnLastMon ~= activeMon then
+                local needRebuild = (_spawnLastMon ~= activeMon)
+                    or (not _spawnPoints)
+                    or (#_spawnPoints == 0)
+                    or (tick() - (_spawnRefreshAt or 0) >= 1.5)
+
+                if needRebuild then
+                    local monChanged = (_spawnLastMon ~= activeMon)
+                    local oldCount   = _spawnPoints and #_spawnPoints or 0
                     _spawnLastMon   = activeMon
+                    _spawnRefreshAt = tick()
                     _spawnPoints    = {}
-                    _spawnIndex     = 1
+                    if monChanged or oldCount == 0 then
+                        _spawnIndex = 1
+                    end
                     _spawnArrivedAt = 0
 
                     local spawnsFolder = workspace:FindFirstChild("_WorldOrigin")
@@ -3102,11 +3161,11 @@ function startLevelFarm()
 
                     if spawnsFolder then
                         for _, sp in ipairs(spawnsFolder:GetChildren()) do
-                            if sp.Name == activeMon or string.find(sp.Name, activeMon, 1, true) then
+                            -- Bắt buộc trùng 100% tên spawn với tên mob trong quest
+                            if sp.Name == activeMon then
                                 local part = sp:IsA("BasePart") and sp
                                     or sp:FindFirstChildWhichIsA("BasePart")
                                 if part then
-                                    -- Y + 30 để bay phía trên điểm spawn
                                     local p = part.Position
                                     table.insert(_spawnPoints, CFrame.new(p.X, p.Y + 30, p.Z))
                                 end
@@ -3114,26 +3173,27 @@ function startLevelFarm()
                         end
                     end
 
-                    print("🗺️ EnemySpawns tìm được: " .. #_spawnPoints .. " điểm cho " .. tostring(activeMon))
+                    if _spawnIndex < 1 or _spawnIndex > math.max(#_spawnPoints, 1) then
+                        _spawnIndex = 1
+                    end
                 end
 
-                -- Tween đến điểm spawn hiện tại
-                -- Đến nơi → delay 2s, sau đó mới chuyển sang điểm tiếp theo
+                -- Mỗi Heartbeat: tween tới spawn hiện tại, xoay vòng liên tục
                 if _spawnPoints and #_spawnPoints > 0 then
                     local targetSP = _spawnPoints[_spawnIndex]
-                    TweenToPos(targetSP, getgenv().FlySpeed)
+                    if targetSP then
+                        TweenToPos(targetSP, getgenv().FlySpeed)
 
-                    if root and (root.Position - targetSP.Position).Magnitude <= 20 then
-                        -- Đến điểm spawn → bắt đầu đếm delay 2s
-                        if _spawnArrivedAt == 0 then
-                            _spawnArrivedAt = tick()
-                        elseif tick() - _spawnArrivedAt >= 0.1 then
-                            -- Hết 2s, vẫn chưa có mob (nếu có mob thì branch if enemy đã bắt) → sang điểm tiếp
+                        if root and (root.Position - targetSP.Position).Magnitude <= 25 then
+                            if _spawnArrivedAt == 0 then
+                                _spawnArrivedAt = tick()
+                            elseif tick() - _spawnArrivedAt >= 0.15 then
+                                _spawnArrivedAt = 0
+                                _spawnIndex = (_spawnIndex % #_spawnPoints) + 1
+                            end
+                        else
                             _spawnArrivedAt = 0
-                            _spawnIndex     = (_spawnIndex % #_spawnPoints) + 1
                         end
-                    else
-                        _spawnArrivedAt = 0  -- chưa đến → reset timer
                     end
                 end
             end
@@ -3543,15 +3603,28 @@ local function GetCurrentZone()
 end
 
 
+-- Tìm Shrine gần player nhất (không lấy theo thứ tự GetChildren)
 local function FindShrine()
+    local root = getRoot()
+    local best, bestDist = nil, math.huge
+
     for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        if enemy.Name == "Shrine" and enemy:FindFirstChild("Humanoid") and enemy:FindFirstChild("HumanoidRootPart") then
-            if enemy.Humanoid.Health > 0 then
-                return enemy
+        if enemy.Name == "Shrine"
+            and enemy:FindFirstChild("Humanoid")
+            and enemy:FindFirstChild("HumanoidRootPart")
+            and enemy.Humanoid.Health > 0
+        then
+            local dist = root
+                and (enemy.HumanoidRootPart.Position - root.Position).Magnitude
+                or 0
+            if dist < bestDist then
+                bestDist = dist
+                best = enemy
             end
         end
     end
-    return nil
+
+    return best
 end
 
 -- Helper: kiểm tra object có label "Destroy" (BillboardGui hoặc tên trực tiếp)
@@ -3573,24 +3646,35 @@ local function isDestroyTarget(obj)
     return false
 end
 
--- Tìm mob "Destroy" xuất hiện trong dungeon (ưu tiên cao nhất)
--- Tìm cả trong workspace.Enemies và trong zone folder hiện tại
+-- Tìm mob "Destroy" gần player nhất (ưu tiên cao nhất)
+-- Trước đây lấy theo thứ tự GetChildren → xa phá trước, gần phá sau
 local function FindDestroy()
-    -- Tìm trong workspace.Enemies trước
+    local root = getRoot()
+    local best, bestDist = nil, math.huge
+
+    local function consider(obj)
+        if not isDestroyTarget(obj) then return end
+        local hrp = obj.HumanoidRootPart
+        local dist = root and (hrp.Position - root.Position).Magnitude or 0
+        if dist < bestDist then
+            bestDist = dist
+            best = obj
+        end
+    end
+
+    -- Tìm trong workspace.Enemies
     for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        if isDestroyTarget(enemy) then
-            return enemy
-        end
+        consider(enemy)
     end
 
-    -- Fallback: tìm trong toàn bộ workspace (phòng khi Destroy spawn ngoài Enemies)
+    -- Fallback: tìm trong workspace (phòng khi Destroy spawn ngoài Enemies)
     for _, obj in ipairs(workspace:GetChildren()) do
-        if obj.Name ~= "Enemies" and isDestroyTarget(obj) then
-            return obj
+        if obj.Name ~= "Enemies" then
+            consider(obj)
         end
     end
 
-    return nil
+    return best
 end
 
 
