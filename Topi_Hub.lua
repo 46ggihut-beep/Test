@@ -346,7 +346,7 @@ end
 -- Trả về: true nếu đã tele trung gian, false nếu không cần
 --------------------------------------------------------------------
 local _lastIntermediateTele = 0  -- Cooldown tracker
-local INTERMEDIATE_COOLDOWN = 5  -- Giây giữa các lần tele trung gian
+local INTERMEDIATE_COOLDOWN = 3  -- Giây giữa các lần tele trung gian
 local _intermediateRunning  = false  -- Guard: ngăn _tp tween trong lúc đang spam TP
 
 --------------------------------------------------------------------
@@ -888,7 +888,7 @@ Tabs.Main:CreateDropdown("FarmType", {
             getgenv().FarmTyrant = false
 
             -- Delay 1 giây trước khi bật farm mới
-            task.wait(1)
+            task.wait(0.3)
 
             -- Đảm bảo người dùng chưa tắt toggle trong lúc chờ
             if not getgenv().IsFarming then return end
@@ -1745,7 +1745,7 @@ end)
 -- Chạy liên tục khi đang farm: fire RemoveStun remote + xóa giá trị Stun trên character
 -- Áp dụng cho tất cả farm + fly đảo
 task.spawn(function()
-    while task.wait(0.1) do
+    while task.wait(0) do
         pcall(function()
             local isActive = getgenv().IsFarming
                 or getgenv().AutoMaterial
