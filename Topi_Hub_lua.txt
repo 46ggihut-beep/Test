@@ -209,6 +209,15 @@ elseif World3 then
                 pcall(function() Event:InvokeServer("SetLastSpawnPoint", "SeaCastle") end)
             end
         },
+        {
+            -- Tiki: pos đích trung gian. request đặc biệt xử lý trong doIntermediateTeleport
+            name = "Tiki",
+            pos = Vector3.new(-16813.44, 80.32, 304.87),
+            special = "Tiki",
+            request = function()
+                -- Placeholder: logic multi-step chạy trong doIntermediateTeleport
+            end
+        },
     }
 else
     -- Fallback về World 1 nếu không xác định được
@@ -276,11 +285,17 @@ local function getIntermediateTeleport(a, b)
     local best, bestDist = nil, math.huge
 
     for _, island in ipairs(IntermediateIslands) do
-        -- Khoảng cách XZ từ đảo trung gian đến đích
-        local d = (Vector2.new(island.pos.X, island.pos.Z) - Vector2.new(b.X, b.Z)).Magnitude
-        if d < bestDist then
-            bestDist = d
-            best = island
+        -- Nếu tắt Tele Tiki thì bỏ Tiki khỏi danh sách đảo trung gian.
+        -- Tiki vẫn tồn tại như một đảo bình thường để các chức năng khác
+        -- có thể tween/di chuyển tới đó, chỉ không được chọn làm trung gian.
+        local isTiki = island.special == "Tiki" or island.name == "Tiki"
+        if not (isTiki and not getgenv().TeleTiki) then
+            -- Khoảng cách XZ từ đảo trung gian đến đích
+            local d = (Vector2.new(island.pos.X, island.pos.Z) - Vector2.new(b.X, b.Z)).Magnitude
+            if d < bestDist then
+                bestDist = d
+                best = island
+            end
         end
     end
 
@@ -395,12 +410,64 @@ local function doIntermediateTeleport(targetCF, speed)
 
         print("🚀 Tele trung gian → " .. island.name .. " (dist=" .. math.floor(dist) .. ", distIsland=" .. math.floor(distToIsland) .. ")")
 
-        -- Bước 2+3: World2/3 có request → dùng remote requestEntrance
-        --           World1 (không request) → spam CFrame như cũ
-        if type(island.request) == "function" then
+        -- ── SPECIAL: Tiki ──────────────────────────────────────────────
+        -- 1) remote tele CastleOnTheSea
+        -- 2) tween/spam tới portal pos (-5097.83, 316.54, -3181.23)
+        -- 3) delay 0.3
+        -- 4) đợi player tới Tiki pos rồi mới tween đích
+        if island.special == "Tiki" or island.name == "Tiki" then
+            local tikiPos   = Vector3.new(-16813.44, 80.32, 304.87)
+            local portalPos = Vector3.new(-5097.83, 316.54, -3181.23)
+
+            -- 1) Remote CastleOnTheSea
+            pcall(function()
+                local Event = ReplicatedStorage.Remotes.CommF_
+                Event:InvokeServer("GetUnlockables")
+                Event:InvokeServer("requestEntrance", Vector3.new(-5060.4116210938, 340.50201416016, -3193.2248535156))
+                Event:InvokeServer("SetLastSpawnPoint", "SeaCastle")
+            end)
+            task.wait(0.2)
+
+            -- 2) Đưa player tới portal pos gần Castle
+            do
+                local deadline = tick() + 8
+                while tick() < deadline do
+                    local c = player.Character
+                    local h = c and c:FindFirstChild("HumanoidRootPart")
+                    if h then
+                        if (h.Position - portalPos).Magnitude <= 15 then break end
+                        h.CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 0))
+                    end
+                    task.wait()
+                end
+            end
+
+            -- 3) Delay 0.3
+            task.wait(0.3)
+
+            -- 4) Đợi / đưa player tới Tiki pos
+            do
+                local deadline = tick() + 12
+                while tick() < deadline do
+                    local c = player.Character
+                    local h = c and c:FindFirstChild("HumanoidRootPart")
+                    if h then
+                        local d = (Vector2.new(h.Position.X, h.Position.Z) - Vector2.new(tikiPos.X, tikiPos.Z)).Magnitude
+                        if d <= 80 then break end
+                        -- nếu server chưa tele → spam CFrame về Tiki
+                        h.CFrame = CFrame.new(tikiPos + Vector3.new(0, 2, 0))
+                    end
+                    task.wait()
+                end
+            end
+
+            print("✅ Đã tới Tiki trung gian — tiếp tục tween đích")
+        elseif type(island.request) == "function" then
+            -- World2/3 thường: remote requestEntrance
             pcall(island.request)
             task.wait(0.15)
         else
+            -- World1 / không request: spam CFrame
             local spamDuration = distToIsland < 5000 and 0.3 or 2
             local deadline = tick() + spamDuration
             while tick() < deadline do
@@ -764,9 +831,8 @@ getgenv().BringRange = 350          -- Phạm vi kéo mob (khoảng cách tối 
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 getgenv().Noclip = false            -- Xuyên tường (tắt va chạm với địa hình)
 getgenv().TelePorto = false         -- Bật/tắt tele trung gian khi tween xa
+getgenv().TeleTiki = true              -- Cho phép dùng Tiki làm đảo trung gian (W3)
 
-getgenv().BringCount = 2            -- Số mob tối đa cần bring (bao gồm mob đang farm)
-getgenv().MaxBringCount = 2         -- Max mob được bring mỗi lần (set qua dropdown Settings)
 getgenv().IsFarming = false         -- Trạng thái đang farm (true = đang farm, false = dừng)
 getgenv().AutoBusoLoop = false      -- Tự động bật Buso Haki liên tục
 getgenv().FastAttack = false        -- Auto Attack (mac dinh tat)
@@ -895,13 +961,14 @@ Tabs.Main:CreateToggle("AutoFarm", {
                 startTyrantFarm()
             end
         else
-            stopFly()
-            stopLevelFarm()
-            stopBoneFarm()
-            stopKataFarm()
-            stopAuraFarm()
-            stopTyrantFarm()
-            stopPhaBinhFarm()
+            -- UI callbacks may run before fly functions are defined.
+            if type(stopFly) == "function" then stopFly() end
+            if type(stopLevelFarm) == "function" then stopLevelFarm() end
+            if type(stopBoneFarm) == "function" then stopBoneFarm() end
+            if type(stopKataFarm) == "function" then stopKataFarm() end
+            if type(stopAuraFarm) == "function" then stopAuraFarm() end
+            if type(stopTyrantFarm) == "function" then stopTyrantFarm() end
+            if type(stopPhaBinhFarm) == "function" then stopPhaBinhFarm() end
         end
     end
 })
@@ -1023,7 +1090,8 @@ Tabs.Main:CreateToggle("AutoMaterial", {
             stopLevelFarm()
             startFly()
         else
-            stopFly()
+            -- UI callbacks may run before fly functions are defined.
+            if type(stopFly) == "function" then stopFly() end
         end
     end
 })
@@ -1377,16 +1445,6 @@ Tabs.Settings:CreateToggle("BringMob", {
     end
 })
 
-Tabs.Settings:CreateDropdown("MaxBringCount", {
-    Title = "Max Bring Mob",
-    Description = "Số mob tối đa bring mỗi lần (không tính mob đang farm)",
-    Values = {"2", "3", "4", "5", "6", "7", "8"},
-    Default = 1,
-    Callback = GuardDropdown(function(v)
-        getgenv().MaxBringCount = tonumber(v) or 2
-    end),
-})
-
 Tabs.Settings:CreateToggle("BuddhaFarm", {
     Title = "Buddha Farm",
     Description = "Bật: Tự động kích hoạt Buddha khi farm (nếu đang dùng fruit Buddha). Tắt: Farm bình thường không bật Buddha.",
@@ -1451,6 +1509,15 @@ Tabs.Settings:CreateToggle("TelePorto", {
     Default = false,
     Callback = function(v)
         getgenv().TelePorto = v
+    end
+})
+
+Tabs.Settings:CreateToggle("TeleTiki", {
+    Title = "Tele Tiki",
+    Description = "Bật: dùng Tiki làm đảo trung gian. Tắt: Tiki là đảo bình thường, không dùng làm tele trung gian.",
+    Default = true,
+    Callback = function(v)
+        getgenv().TeleTiki = v
     end
 })
 
@@ -1795,11 +1862,7 @@ end
 -- LÕI FLY MỚI (_tp) - Topi Chest style, tích hợp cho Topi Hub
 -- - Khi đang tween đúng speed → để chạy tiếp, không cancel/recreate
 -- - Khi speed đổi → cancel và tạo tween mới
--- - Y-snap khi chênh lệch > YTeleportThreshold
--- - Fly + teleport đồng thời khi dist <= 200
 -- ============================================================
-
-local YTeleportThreshold = 150
 
 local function _tp(targetCF, speed)
     if not shouldTween then return end
@@ -1809,17 +1872,6 @@ local function _tp(targetCF, speed)
     local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
 
     local dist = (targetCF.Position - hrp.Position).Magnitude
-
-    local yDiff = math.abs(targetCF.Position.Y - hrp.Position.Y)
-    if yDiff > YTeleportThreshold then
-        if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-        currentTweenSpeed  = 0
-        currentTweenTarget = nil
-        hrp.CFrame = CFrame.new(hrp.Position.X, targetCF.Position.Y, hrp.Position.Z)
-        -- Không delay: tiếp tục tween ngay sau snap
-        if not getgenv().IsFarming then return end
-        dist = (targetCF.Position - hrp.Position).Magnitude
-    end
 
     if dist < 1 then return end  -- Đã đến nơi, không cần làm gì
 
@@ -1875,16 +1927,13 @@ local function GetFarmCFrame(mob)
 
     local targetPos
 
-    -- Offset vị trí farm so với mob: X+4 / Z+0, Y theo loại vũ khí bên dưới
-    local OFFSET_X = 4
-    local OFFSET_Z = 0
-
+    -- Đứng thẳng trên mob (không lệch X/Z)
     if _G.ChooseWP == "Blox Fruit" then
-        targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 10, mobPos.Z + OFFSET_Z)
+        targetPos = Vector3.new(mobPos.X, mobPos.Y + 10, mobPos.Z)
     elseif _G.ChooseWP == "Melee" or _G.ChooseWP == "Sword" then
-        targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 40, mobPos.Z + OFFSET_Z)
+        targetPos = Vector3.new(mobPos.X, mobPos.Y + 40, mobPos.Z)
     else
-        targetPos = Vector3.new(mobPos.X + OFFSET_X, mobPos.Y + 30, mobPos.Z + OFFSET_Z)
+        targetPos = Vector3.new(mobPos.X, mobPos.Y + 30, mobPos.Z)
     end
 
     return CFrame.new(targetPos, targetPos + lookFlat)
@@ -1944,120 +1993,138 @@ local function AttackEnemy(enemy)
     end
 end
 
---// ================= BRING MOB LOGIC =================
-
+--// ===================== BRING ENEMY (Heartbeat — TELEPORT) =====================
+-- Lock look pos = vị trí mob farm lúc chọn target (không đổi mỗi frame).
+-- Teleport mob farm + TẤT CẢ mob cùng loại trong BringRange về look pos.
+-- Không dùng tween/BodyVelocity — chỉ teleport.
+-- Không bring nếu có player khác trong 500 stud quanh player.
+-- SpinBring ON: teleport + orbit bán kính 5 quanh look pos.
 --------------------------------------------------------------------
---------------------------------------------------------------------
--- BRING MOBS - Logic Bring Mob Mới
--- Tính năng:
---   - Bring mob cùng loại về vị trí mob farm (thay vì vị trí trung bình)
---   - Phạm vi bring: 350 studs quanh mob farm
---   - Check TargetPlayer: nếu có player khác 500 studs quanh localplayer → không bring
---   - Teleport + Tween dựa theo FlySpeed ÷ 1.5
---   - Anti-lag: SimulationRadius gọi 1 lần, chỉ destroy Animator khi cần
--- MaxBring: giới hạn số mob được bring qua getgenv().MaxBringCount
---------------------------------------------------------------------
-task.spawn(function()
-    while task.wait(0.5) do
-        pcall(function()
-            if not getgenv().BringMob then return end
-            if not getgenv().IsFarming then return end
+local _lockedBringPos = nil   -- CFrame look pos (lock khi đổi target)
+local _lastBringTarget = nil
+local _spinAngle = 0
+_G.SpinBring = _G.SpinBring or false
 
-            -- Lấy mob đang farm làm mốc bring
-            local targetMob = getgenv().CurrentTargetMob
-            if not targetMob then return end
-            local targetHRP = targetMob:FindFirstChild("HumanoidRootPart")
-            local targetHum = targetMob:FindFirstChild("Humanoid")
-            if not targetHRP or not targetHum then return end
-            if targetHum.Health <= 0 then return end
+RunService.Heartbeat:Connect(function(dt)
+    if not getgenv().BringMob then return end
 
-            --// CHECK TARGETPLAYER: 500 studs quanh localplayer
-            local myHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-            if not myHRP then return end
-            local myPos = myHRP.Position
-            
-            -- Kiểm tra có TargetPlayer (player khác) trong 500 studs không
-            local hasTargetPlayer = false
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= player and p.Character then
-                    local pHRP = p.Character:FindFirstChild("HumanoidRootPart")
-                    if pHRP and (pHRP.Position - myPos).Magnitude <= 500 then
-                        hasTargetPlayer = true
-                        break
-                    end
+    local targetMob = getgenv().CurrentTargetMob
+    if not targetMob or not targetMob.Parent then
+        _lockedBringPos = nil
+        _lastBringTarget = nil
+        return
+    end
+
+    local anyFarmActive = getgenv().IsFarming or getgenv().AutoMaterial
+        or getgenv().FarmDungeon or getgenv().FarmEliteHunt
+        or getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
+        or getgenv().FarmAura or getgenv().FarmTyrant
+    if not anyFarmActive then return end
+
+    -- Bắt buộc check + lock look pos khi đổi target mob
+    if targetMob ~= _lastBringTarget then
+        local thrp = targetMob:FindFirstChild("HumanoidRootPart")
+        local thum = targetMob:FindFirstChild("Humanoid")
+        if not thrp or not thum or thum.Health <= 0 then return end
+        _lastBringTarget = targetMob
+        _lockedBringPos = thrp.CFrame  -- look pos cố định
+    end
+
+    local centerCF = _lockedBringPos
+    if not centerCF then return end
+
+    -- Validate look pos còn dùng được
+    local center = centerCF.Position
+    if typeof(center) ~= "Vector3" then return end
+
+    local myChar = player.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+
+    -- Không bring nếu có player khác trong 500 stud
+    for _, op in ipairs(Players:GetPlayers()) do
+        if op ~= player then
+            local oc = op.Character
+            local oh = oc and oc:FindFirstChild("HumanoidRootPart")
+            if oh and (oh.Position - myHRP.Position).Magnitude <= 500 then
+                return
+            end
+        end
+    end
+
+    local SPIN_RADIUS = 5
+    local mobName = targetMob.Name
+    local bringRange = getgenv().BringRange or 350
+
+    -- Thu thập: mob farm + mob cùng loại trong range
+    local allMobs = {}
+    -- luôn đưa mob farm vào (nếu còn sống)
+    do
+        local hum = targetMob:FindFirstChild("Humanoid")
+        local hrp = targetMob:FindFirstChild("HumanoidRootPart")
+        if hum and hrp and hum.Health > 0 then
+            table.insert(allMobs, targetMob)
+        end
+    end
+    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
+        if enemy ~= targetMob then
+            local hum = enemy:FindFirstChild("Humanoid")
+            local hrp = enemy:FindFirstChild("HumanoidRootPart")
+            if hum and hrp and hum.Health > 0 and hrp.Parent and enemy.Name == mobName then
+                if (hrp.Position - myHRP.Position).Magnitude <= bringRange then
+                    table.insert(allMobs, enemy)
                 end
             end
-            
-            -- Nếu có TargetPlayer thì không bring
-            if hasTargetPlayer then return end
+        end
+    end
 
-            -- Vị trí cố định của mob farm - tất cả mob bring về đây
-            local farmPos    = targetHRP.Position
-            local targetName = targetMob.Name
-            local maxBring   = getgenv().MaxBringCount or 2
+    if #allMobs == 0 then return end
 
-            -- Tính toán khoảng cách teleport + tween dựa theo FlySpeed
-            -- Formula: khoảng cách = FlySpeed ÷ 1.5
-            local flySpeed = getgenv().FlySpeed or 180
-            local teleportDistance = flySpeed / 1.5
+    pcall(function()
+        sethiddenproperty(player, "SimulationRadius", math.huge)
+    end)
 
-            -- SimulationRadius gọi 1 lần, không lặp trong loop mob
+    if _G.SpinBring then
+        -- Spin: teleport orbit quanh look pos
+        _spinAngle = _spinAngle + (300 / SPIN_RADIUS) * dt
+        local n = #allMobs
+        for i, mob in ipairs(allMobs) do
             pcall(function()
-                sethiddenproperty(player, "SimulationRadius", math.huge)
+                local hrp = mob:FindFirstChild("HumanoidRootPart")
+                local hum = mob:FindFirstChild("Humanoid")
+                if not hrp or not hum or hum.Health <= 0 then return end
+                -- dọn BV cũ nếu còn
+                local bv = hrp:FindFirstChild("_MobFlyBV")
+                if bv then bv:Destroy() end
+                local angle = _spinAngle + (2 * math.pi / n) * (i - 1)
+                local orbitPos = Vector3.new(
+                    center.X + SPIN_RADIUS * math.cos(angle),
+                    center.Y,
+                    center.Z + SPIN_RADIUS * math.sin(angle)
+                )
+                hrp.CFrame = CFrame.new(orbitPos)
+                hrp.Velocity = Vector3.zero
+                hrp.CanCollide = false
+                hum.WalkSpeed = 0
+                hum.JumpPower = 0
             end)
-
-            -- Bring mob cùng loại trong phạm vi 350 quanh mob farm
-            local brought = 0
-            for _, v in ipairs(workspace.Enemies:GetChildren()) do
-                if brought >= maxBring then break end
-                if v ~= targetMob and v.Name == targetName then
-                    local hum = v:FindFirstChild("Humanoid")
-                    local hrp = v:FindFirstChild("HumanoidRootPart")
-                    if hum and hrp and hum.Health > 0 then
-                        local dist = (hrp.Position - farmPos).Magnitude
-                        
-                        -- Kiểm tra mob nằm trong phạm vi 350 studs quanh mob farm
-                        if dist > 8 and dist <= 350 then
-                            task.spawn(function()
-                                pcall(function()
-                                    -- Nếu khoảng cách > teleportDistance: teleport trước
-                                    if dist > teleportDistance then
-                                        hrp.CFrame = CFrame.new(farmPos + Vector3.new(0, 3, 0))
-                                        task.wait(0.1)
-                                    end
-                                    
-                                    -- Tween từ vị trí hiện tại (hoặc sau teleport) về farmPos
-                                    local tweenInfo = TweenInfo.new(
-                                        0.2,
-                                        Enum.EasingStyle.Linear,
-                                        Enum.EasingDirection.Out
-                                    )
-                                    local tween = TweenService:Create(
-                                        hrp,
-                                        tweenInfo,
-                                        { CFrame = CFrame.new(farmPos + Vector3.new(0, 0, 0)) }
-                                    )
-                                    
-                                    -- Vô hiệu hóa tính năng của mob
-                                    hrp.CanCollide = false
-                                    hrp.Velocity = Vector3.zero
-                                    hum.WalkSpeed = 0
-                                    hum.JumpPower = 0
-                                    
-                                    -- Destroy Animator nếu tồn tại
-                                    local anim = hum:FindFirstChild("Animator")
-                                    if anim then anim:Destroy() end
-                                    
-                                    tween:Play()
-                                    task.wait(0.25)
-                                end)
-                            end)
-                            brought = brought + 1
-                        end
-                    end
-                end
-            end
-        end)
+        end
+    else
+        -- Teleport thẳng mọi mob (farm + bring) về look pos
+        for _, mob in ipairs(allMobs) do
+            pcall(function()
+                local hrp = mob:FindFirstChild("HumanoidRootPart")
+                local hum = mob:FindFirstChild("Humanoid")
+                if not hrp or not hum or hum.Health <= 0 then return end
+                local bv = hrp:FindFirstChild("_MobFlyBV")
+                if bv then bv:Destroy() end
+                hrp.CFrame = CFrame.new(center)
+                hrp.Velocity = Vector3.zero
+                hrp.CanCollide = false
+                hum.WalkSpeed = 0
+                hum.JumpPower = 0
+            end)
+        end
     end
 end)
 
@@ -2863,11 +2930,9 @@ end
 --     nếu lệch → abort ngay, không block lần gọi mới.
 --
 -- Luồng:
---   1. Fly đến vị trí NPC, đợi đến nơi (timeout 30s)
---   2. Đứng yên 2s
---   3. Kích hoạt TravelToSubmergedIsland
---   4. Đứng yên 2s
---   5. Return → farm/travel tiếp tục bình thường
+--   1. Fly đến vị trí NPC, đợi đến đủ gần (≤10 stud) — không timeout
+--   2. Kích hoạt TravelToSubmergedIsland ngay
+--   3. Chờ server tele + (tuỳ chọn) fly tới finalPos
 --------------------------------------------------------------------
 local _submergedCallId = 0    -- bump khi bắt đầu mỗi call MỚI
 local _submergedRunning = false  -- guard: ngăn chạy song song từ Heartbeat
@@ -2895,33 +2960,28 @@ local function TeleportToSubmerged(finalPos)
     -- Bước 1: Fly đến NPC (tele trung gian được xử lý bên trong TweenToPos)
     TweenToPos(npcCF, 350)
 
-    -- Đợi đến đủ gần (timeout 30s)
-    local deadline = tick() + 30
-    repeat
-        task.wait(0.3)
+    -- Đợi đến đủ gần ≤10 stud — không timeout, chỉ check khoảng cách
+    while true do
+        task.wait(0.15)
         if myId ~= _submergedCallId then _submergedRunning = false; return end
         if not getgenv().IsFarming then _submergedRunning = false; return end
         local root = getRoot()
-        if not root then break end
-        if (root.Position - npcCF.Position).Magnitude <= 35 then break end
-    until tick() > deadline
+        if root and (root.Position - npcCF.Position).Magnitude <= 10 then
+            break
+        end
+        -- vẫn chưa gần → gọi lại TweenToPos để tiếp tục bay
+        TweenToPos(npcCF, 350)
+    end
 
     if myId ~= _submergedCallId or not getgenv().IsFarming then
         _submergedRunning = false
         return
     end
 
-    -- Bước 2: Dừng tween, đứng yên 2s
+    -- Bước 2: Dừng tween rồi kích hoạt TravelToSubmergedIsland ngay
     if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
     currentTweenSpeed = 0
-    task.wait(2)
 
-    if myId ~= _submergedCallId or not getgenv().IsFarming then
-        _submergedRunning = false
-        return
-    end
-
-    -- Bước 3: Kích hoạt TravelToSubmergedIsland
     pcall(function()
         ReplicatedStorage.Modules.Net:FindFirstChild("RF/SubmarineWorkerSpeak")
             :InvokeServer("TravelToSubmergedIsland")
