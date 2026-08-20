@@ -1947,8 +1947,8 @@ local function _tp(targetCF, speed)
 
     -- Cách đích ≤ 150 stud → tăng tốc lên 500 để vào tới nơi nhanh hơn
     local effectiveSpeed = speed
-    if dist <= 150 then
-        effectiveSpeed = 1000
+    if dist <= 100 then
+        effectiveSpeed = 600
     end
 
     -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
@@ -5971,7 +5971,7 @@ local IslandData = {
         { name = "Raid Low",              pos = Vector3.new(-5530, 224, -5903) },
         { name = "Ghost Ship Gate",       pos = Vector3.new(-6491, 305, -4729) },
         { name = "Ghost Ship",            pos = Vector3.new(  923.21, 135.98, 32852.83) },
-        { name = "Raid Fruit",            pos = Vector3.new(-6445.45, 270.68, -4486.27) },
+        { name = "Raid Fruit",            pos = Vector3.new(-6520.40, 307.79, -4654.34) },
     },
     world3 = {
         { name = "Hydar Island",          pos = Vector3.new(  3567.22,   51.38,  1927.11) },
