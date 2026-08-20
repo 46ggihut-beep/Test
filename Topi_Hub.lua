@@ -100,7 +100,7 @@ local function ScanWorldSpawns()
             end
 
             local p  = part.Position
-            local cf = CFrame.new(p.X, p.Y + 30, p.Z)
+            local cf = CFrame.new(p.X, p.Y + 25, p.Z)
 
             local list = getgenv().WorldSpawnData[name]
             if not list then
@@ -897,7 +897,7 @@ end
 getgenv().BringMob = true           -- Bật tính năng kéo mob lại gần (giúp farm nhanh hơn)
 getgenv().FlySpeed = 280            -- Tốc độ bay (càng cao bay càng nhanh, nhưng dễ bị phát hiện)
 getgenv().FlyHeight = 30            -- Độ cao bay so với mob (tránh bị đánh)
-getgenv().BringRange = 200          -- Phạm vi kéo mob (khoảng cách tối đa để bring mob)
+getgenv().BringRange = 300          -- Phạm vi kéo mob (khoảng cách tối đa để bring mob)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 getgenv().Noclip = false            -- Xuyên tường (tắt va chạm với địa hình)
 getgenv().TelePorto = false         -- Bật/tắt tele trung gian khi tween xa
@@ -1948,7 +1948,7 @@ local function _tp(targetCF, speed)
     -- Cách đích ≤ 150 stud → tăng tốc lên 500 để vào tới nơi nhanh hơn
     local effectiveSpeed = speed
     if dist <= 150 then
-        effectiveSpeed = 500
+        effectiveSpeed = 1000
     end
 
     -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
@@ -2079,7 +2079,7 @@ end
 local _spinAngle = 0
 _G.SpinBring = _G.SpinBring or false
 
-local MAX_BRING_RANGE = 200 -- Giới hạn cứng: chỉ bring mob trong phạm vi 200 stud
+local MAX_BRING_RANGE = 300 -- Giới hạn cứng: chỉ bring mob trong phạm vi 200 stud
 local BRING_INTERVAL = 0.2  -- Bring mob mỗi 0.2 giây 1 lần
 local _bringAccum = 0
 
@@ -3369,11 +3369,96 @@ function stopLevelFarm()
     getgenv().CurrentTargetMob = nil
 end
 
+--------------------------------------------------------------------
+-- HẾT MOB -> TWEEN POS SPAWN THẬT (dùng chung cho Bone / Kata / Material)
+--
+-- GetMobSpawnWaypoints(mobList, onePerMob):
+--   Quét lại _WorldOrigin.EnemySpawns (ScanWorldSpawns) rồi lấy pos spawn
+--   thật đã lưu trong WorldSpawnData cho từng tên mob trong mobList.
+--     onePerMob = true  -> mỗi loại mob CHỈ lấy 1 pos (dùng cho Bone/Kata,
+--                          làm điểm mốc tuần tra qua lại giữa các loại mob)
+--     onePerMob = false -> lấy HẾT toàn bộ pos đã quét được của mọi loại mob
+--                          (dùng cho Material farm nhiều loại mob: phải đi
+--                          qua hết pos của tất cả loại mob mới lặp lại)
+--
+-- MakeSpawnPatroller(mobList, onePerMob):
+--   Trả về bộ điều khiển tuần tra { step, reset } cho 1 farm mode:
+--     step(root, speed) -> tween tới waypoint hiện tại, tự xoay vòng qua
+--                          waypoint kế tiếp sau khi đến gần + delay 0.5s.
+--                          Trả về CFrame đích nếu có waypoint, nil nếu
+--                          chưa quét được pos nào (để farm tự fallback).
+--     reset()           -> gọi khi tìm lại được mob, để lần hết mob kế
+--                          tiếp patrol lại từ waypoint đầu tiên.
+--------------------------------------------------------------------
+local function GetMobSpawnWaypoints(mobList, onePerMob)
+    pcall(ScanWorldSpawns)
+    local waypoints = {}
+    for _, mobName in ipairs(mobList) do
+        local list = getgenv().WorldSpawnData[mobName]
+        if list and #list > 0 then
+            if onePerMob then
+                table.insert(waypoints, list[1])
+            else
+                for _, cf in ipairs(list) do
+                    table.insert(waypoints, cf)
+                end
+            end
+        end
+    end
+    return waypoints
+end
+
+local function MakeSpawnPatroller(mobList, onePerMob)
+    local waypoints  = nil
+    local idx        = 1
+    local arrivedAt  = 0
+    local lastScanAt = 0
+
+    local function rebuild()
+        waypoints  = GetMobSpawnWaypoints(mobList, onePerMob)
+        lastScanAt = tick()
+        if idx > #waypoints then idx = 1 end
+        arrivedAt = 0
+    end
+
+    local function reset()
+        idx = 1
+        arrivedAt = 0
+    end
+
+    local function step(root, speed)
+        -- Rebuild nếu chưa có data, rỗng, hoặc đã quá 3s kể từ lần quét trước
+        -- (phòng khi lúc đầu khu vực chưa load kịp EnemySpawns)
+        if not waypoints or #waypoints == 0 or (tick() - lastScanAt) >= 3 then
+            rebuild()
+        end
+        if not waypoints or #waypoints == 0 then return nil end
+
+        local targetCF = waypoints[idx]
+        TweenToFixedPos(root, targetCF, speed)
+
+        if root and (root.Position - targetCF.Position).Magnitude <= 80 then
+            if arrivedAt == 0 then
+                arrivedAt = tick()
+            elseif tick() - arrivedAt >= 0.5 then
+                arrivedAt = 0
+                idx = (idx % #waypoints) + 1  -- qua waypoint kế tiếp, hết vòng thì quay lại đầu
+            end
+        else
+            arrivedAt = 0
+        end
+        return targetCF
+    end
+
+    return { step = step, reset = reset }
+end
+
 --// ================= BONE FARM =================
 local boneFarmConn
 local BoneQuestPos = CFrame.new(-9516.99316, 172.017181, 6078.46533)
-local BoneFarmPos = CFrame.new(-9495.6806640625, 453.58624267578125, 5977.3486328125)
+local BoneFarmPos = CFrame.new(-9495.6806640625, 453.58624267578125, 5977.3486328125) -- fallback khi chưa quét được pos spawn thật
 local BonesTable = {"Reborn Skeleton", "Living Zombie", "Demonic Soul", "Posessed Mummy"}
+local bonePatrol = MakeSpawnPatroller(BonesTable, true) -- mỗi loại mob chỉ lấy 1 pos spawn thật, tween qua lại giữa 4 pos
 
 function startBoneFarm()
     if boneFarmConn then boneFarmConn:Disconnect() end
@@ -3390,6 +3475,7 @@ function startBoneFarm()
         getgenv().CurrentTargetMob = bone
     
         if bone then
+            bonePatrol.reset() -- có mob lại -> lần hết mob kế tiếp patrol lại từ pos đầu
             if getgenv().AcceptQuestC and not questUI.Visible then
                 if not getgenv().BypassAcceptQuest then
                     TweenToFixedPos(root, BoneQuestPos, getgenv().FlySpeed)
@@ -3415,7 +3501,12 @@ function startBoneFarm()
             end
         else
             getgenv().CurrentTargetMob = nil
-            TweenToFixedPos(root, BoneFarmPos, getgenv().FlySpeed)
+            -- Hết mob -> tween qua lại giữa pos spawn thật của 4 loại mob Bone
+            -- (không tween về pos chờ cố định nữa)
+            local reached = bonePatrol.step(root, getgenv().FlySpeed)
+            if not reached then
+                TweenToFixedPos(root, BoneFarmPos, getgenv().FlySpeed) -- fallback: chưa quét được pos spawn
+            end
         end
     end)
 end
@@ -3434,6 +3525,7 @@ local CakeQuestPos = CFrame.new(-1927.92, 37.8, -12842.54)
 local CakeTeleportPos = CFrame.new(-2151.82, 149.32, -12404.91)
 local CakeMirrorPos = CFrame.new(-2151.82, 149.32, -12404.91)
 local CakePrinceTable = {"Cookie Crafter", "Cake Guard", "Baking Staff", "Head Baker"}
+local kataPatrol = MakeSpawnPatroller(CakePrinceTable, true) -- mỗi loại mob chỉ lấy 1 pos spawn thật, tween qua lại giữa 4 pos
 
 function startKataFarm()
     if kataFarmConn then kataFarmConn:Disconnect() end
@@ -3506,6 +3598,7 @@ function startKataFarm()
             getgenv().CurrentTargetMob = cakeMob
             
             if cakeMob then
+                kataPatrol.reset() -- có mob lại -> lần hết mob kế tiếp patrol lại từ pos đầu
                 if getgenv().AcceptQuestC and not questUI.Visible then
                     if not getgenv().BypassAcceptQuest then
                         TweenToFixedPos(root, CakeQuestPos, getgenv().FlySpeed)
@@ -3529,7 +3622,12 @@ function startKataFarm()
                 AttackEnemy(cakeMob)
             else
                 getgenv().CurrentTargetMob = nil
-                TweenToFixedPos(root, CakeTeleportPos, getgenv().FlySpeed)
+                -- Hết mob -> tween qua lại giữa pos spawn thật của 4 loại mob Kata
+                -- (không tween về pos chờ cố định nữa)
+                local reached = kataPatrol.step(root, getgenv().FlySpeed)
+                if not reached then
+                    TweenToFixedPos(root, CakeTeleportPos, getgenv().FlySpeed) -- fallback: chưa quét được pos spawn
+                end
             end
         end
     end)
@@ -3979,12 +4077,14 @@ function stopDungeonFarm()
 end
 
 --// ================= MATERIAL FARM LOOP =================
--- Vị trí tuần tra riêng cho Dragon Scale (2 pos, mỗi pos delay 0.5s)
-local DragonScalePatrolPositions = {
-    CFrame.new(6793, 535, 454),
-    CFrame.new(6945, 106, -807),
-}
-local _dragonPatrolIdx = 1
+-- Hết mob -> tween qua pos spawn THẬT của nguyên liệu đang chọn thay vì bay
+-- về 1 pos mặc định cố định (MPos chỉ còn dùng làm fallback khi chưa quét
+-- được pos nào). Nguyên liệu nào có nhiều hơn 1 loại mob (Dragon Scale,
+-- Magma Ore, Angel Wings...) sẽ tween qua HẾT pos spawn của TẤT CẢ loại mob
+-- thuộc nguyên liệu đó rồi mới lặp lại từ đầu; nguyên liệu chỉ có 1 loại mob
+-- thì tween qua lại giữa các pos spawn thật của đúng loại mob đó.
+local _matPatroller = nil
+local _matPatrolKey  = nil -- SelectMaterial hiện tại, dùng để phát hiện đổi loại nguyên liệu
 
 spawn(function()
     while task.wait() do
@@ -3998,35 +4098,28 @@ spawn(function()
                 getgenv().CurrentTargetMob = target
 
                 if target and target:FindFirstChild("HumanoidRootPart") then
-                    -- Có mob: đánh bình thường (reset patrol index về 1 sau mỗi lần có mob)
-                    _dragonPatrolIdx = 1
+                    -- Có mob: đánh bình thường (reset patrol để lần hết mob kế
+                    -- tiếp tuần tra lại từ pos đầu)
+                    if _matPatroller then _matPatroller.reset() end
                     local targetCF = GetFarmCFrame(target)
                     if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
                     AttackEnemy(target)
 
-                elseif getgenv().SelectMaterial == "Dragon Scale" then
-                    -- Không có mob: tuần tra qua lại 2 pos, mỗi pos delay 0.5s
+                else
+                    -- Hết mob: tween qua pos spawn thật của (các) loại mob thuộc
+                    -- nguyên liệu đang chọn, xoay vòng liên tục cho tới khi có mob
                     getgenv().CurrentTargetMob = nil
-                    local patrolCF = DragonScalePatrolPositions[_dragonPatrolIdx]
-                    TweenToFixedPos(root, patrolCF, getgenv().FlySpeed)
 
-                    -- Đợi đến đủ gần hoặc hết 4 giây (buffer) rồi delay thêm 3s trước khi đổi pos
-                    local deadline = tick() + 4
-                    repeat task.wait(0.15) until
-                        not getgenv().AutoMaterial
-                        or (getRoot() and (getRoot().Position - patrolCF.Position).Magnitude < 80)
-                        or tick() > deadline
-
-                    if getgenv().AutoMaterial and getgenv().SelectMaterial == "Dragon Scale" then
-                        task.wait(0.5) -- Delay 0.5s tại pos hiện tại
-                        -- Chuyển sang pos kế tiếp
-                        _dragonPatrolIdx = (_dragonPatrolIdx % #DragonScalePatrolPositions) + 1
+                    if _matPatrolKey ~= getgenv().SelectMaterial then
+                        -- Đổi loại nguyên liệu -> tạo lại patroller ứng với danh
+                        -- sách mob (MMon) của loại nguyên liệu mới
+                        _matPatrolKey = getgenv().SelectMaterial
+                        _matPatroller = MakeSpawnPatroller(MMon, false)
                     end
 
-                else
-                    -- Loại nguyên liệu khác: bay về vị trí mặc định
-                    getgenv().CurrentTargetMob = nil
-                    if MPos then
+                    local reached = _matPatroller and _matPatroller.step(root, getgenv().FlySpeed)
+                    if not reached and MPos then
+                        -- Fallback: chưa quét được pos spawn thật nào -> dùng pos mặc định
                         TweenToFixedPos(root, MPos, getgenv().FlySpeed)
                     end
                 end
