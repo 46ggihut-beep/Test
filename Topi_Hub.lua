@@ -64,6 +64,76 @@ local HttpService = game:GetService("HttpService") -- Encode/Decode JSON cho sav
 local player = Players.LocalPlayer -- Người chơi hiện tại
 local lp = player -- Alias ngắn gọn cho LocalPlayer
 
+--// ================= WORLD SPAWN DATABASE (QUÉT POS SPAWN MOB CẢ WORLD) =================
+-- Lưu toàn bộ vị trí spawn (EnemySpawns) của TẤT CẢ mob trong world ngay khi script
+-- vừa chạy, để khi farm quest hết mob có thể lục lại pos đã lưu mà tween tới, không
+-- phụ thuộc vào việc khu vực đó có đang active/loaded ngay lúc đó hay không.
+-- Dữ liệu KHÔNG BAO GIỜ bị xóa — mỗi lần quét chỉ lưu đè (merge thêm) vào, giữ
+-- nguyên toàn bộ pos đã từng quét được từ trước đó.
+if not getgenv().WorldSpawnData then
+    getgenv().WorldSpawnData = {} -- [tenMob] = { CFrame, CFrame, ... }
+end
+
+local function ScanWorldSpawns()
+    local spawnsFolder = Workspace:FindFirstChild("_WorldOrigin")
+        and Workspace._WorldOrigin:FindFirstChild("EnemySpawns")
+    if not spawnsFolder then return end
+
+    -- Dùng GetDescendants() để quét HẾT mọi cấp con cháu trong EnemySpawns
+    -- (không chỉ children cấp 1), phòng khi pos spawn nằm trong folder/model
+    -- lồng nhau theo từng khu vực → không bỏ sót pos nào của cả world.
+    for _, part in ipairs(spawnsFolder:GetDescendants()) do
+        if part:IsA("BasePart") then
+            -- Tên object thực tế có dạng "Isle Outlaw [Lv. 2450]" hoặc
+            -- "Beautiful Pirate [Lv. 1950] [Boss]" — cắt bỏ hết phần "[...]"
+            -- phía sau để lấy đúng tên mob thuần (khớp với Mon/NameMon quest)
+            local rawName = part.Name
+            local name = rawName:match("^(.-)%s*%[") or rawName
+            if name == "" then
+                name = rawName
+            end
+            -- Nếu tên vẫn là tên generic (Part/Union/Spawn...) thì lấy tên
+            -- object cha (model/folder bọc ngoài) làm tên mob thay thế
+            if name:match("^Part%d*$") or name:match("^Union%d*$")
+                or name:match("^Spawn%d*$") or name == "SpawnLocation" then
+                name = (part.Parent and part.Parent ~= spawnsFolder and part.Parent.Name) or name
+            end
+
+            local p  = part.Position
+            local cf = CFrame.new(p.X, p.Y + 30, p.Z)
+
+            local list = getgenv().WorldSpawnData[name]
+            if not list then
+                list = {}
+                getgenv().WorldSpawnData[name] = list
+            end
+
+            -- Tránh lưu trùng lặp cùng 1 vị trí (khoảng cách < 3 stud = coi như trùng)
+            local isDup = false
+            for _, existingCF in ipairs(list) do
+                if (existingCF.Position - cf.Position).Magnitude < 3 then
+                    isDup = true
+                    break
+                end
+            end
+            if not isDup then
+                table.insert(list, cf)
+            end
+        end
+    end
+end
+getgenv().ScanWorldSpawns = ScanWorldSpawns
+
+-- Quét ngay lập tức lúc script vừa load (bắt toàn bộ pos spawn hiện có trong world)
+task.spawn(function()
+    -- Chờ Workspace sẵn sàng (phòng khi _WorldOrigin chưa kịp replicate lúc vừa join)
+    for i = 1, 20 do
+        if Workspace:FindFirstChild("_WorldOrigin") then break end
+        task.wait(0.5)
+    end
+    pcall(ScanWorldSpawns)
+end)
+
 --// ================= KIỂM TRA WORLD (THẾ GIỚI) =================
 -- Xác định người chơi đang ở World nào dựa vào PlaceId
 local World1 = game.PlaceId == 2753915549 or game.PlaceId == 85211729168715 -- Thế giới 1 (First Sea)
@@ -827,7 +897,7 @@ end
 getgenv().BringMob = true           -- Bật tính năng kéo mob lại gần (giúp farm nhanh hơn)
 getgenv().FlySpeed = 280            -- Tốc độ bay (càng cao bay càng nhanh, nhưng dễ bị phát hiện)
 getgenv().FlyHeight = 30            -- Độ cao bay so với mob (tránh bị đánh)
-getgenv().BringRange = 350          -- Phạm vi kéo mob (khoảng cách tối đa để bring mob)
+getgenv().BringRange = 200          -- Phạm vi kéo mob (khoảng cách tối đa để bring mob)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 getgenv().Noclip = false            -- Xuyên tường (tắt va chạm với địa hình)
 getgenv().TelePorto = false         -- Bật/tắt tele trung gian khi tween xa
@@ -1875,21 +1945,27 @@ local function _tp(targetCF, speed)
 
     if dist < 1 then return end  -- Đã đến nơi, không cần làm gì
 
+    -- Cách đích ≤ 150 stud → tăng tốc lên 500 để vào tới nơi nhanh hơn
+    local effectiveSpeed = speed
+    if dist <= 150 then
+        effectiveSpeed = 500
+    end
+
     -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
     -- Cancel + tạo tween mới nếu: chưa có tween, đổi speed,
     -- hoặc mob đã di chuyển > 3 studs so với đích cũ
     local needUpdate = (not currentTween)
-        or (currentTweenSpeed ~= speed)
+        or (currentTweenSpeed ~= effectiveSpeed)
         or (currentTweenTarget == nil)
         or ((currentTweenTarget - targetCF.Position).Magnitude > 3)
 
     if not needUpdate then return end
 
     if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-    currentTweenSpeed  = speed
+    currentTweenSpeed  = effectiveSpeed
     currentTweenTarget = targetCF.Position
     currentTween = TweenService:Create(hrp,
-        TweenInfo.new(dist / speed, Enum.EasingStyle.Linear),
+        TweenInfo.new(dist / effectiveSpeed, Enum.EasingStyle.Linear),
         {CFrame = targetCF})
     currentTween:Play()
     currentTween.Completed:Once(function()
@@ -1993,27 +2069,39 @@ local function AttackEnemy(enemy)
     end
 end
 
---// ===================== BRING ENEMY (Heartbeat — TELEPORT) =====================
--- Lock look pos = vị trí mob farm lúc chọn target (không đổi mỗi frame).
--- Teleport mob farm + TẤT CẢ mob cùng loại trong BringRange về look pos.
+--// ===================== BRING ENEMY (Heartbeat — TELEPORT, mỗi 0.2s) =====================
+-- KHÔNG lock look pos: mỗi 0.2s teleport mob farm + TẤT CẢ mob cùng loại
+-- trong BringRange thẳng về VỊ TRÍ HIỆN TẠI (live) của chính mob đang farm.
 -- Không dùng tween/BodyVelocity — chỉ teleport.
 -- Không bring nếu có player khác trong 500 stud quanh player.
--- SpinBring ON: teleport + orbit bán kính 5 quanh look pos.
+-- SpinBring ON: teleport + orbit bán kính 5 quanh mob farm.
 --------------------------------------------------------------------
-local _lockedBringPos = nil   -- CFrame look pos (lock khi đổi target)
-local _lastBringTarget = nil
 local _spinAngle = 0
 _G.SpinBring = _G.SpinBring or false
+
+local MAX_BRING_RANGE = 200 -- Giới hạn cứng: chỉ bring mob trong phạm vi 200 stud
+local BRING_INTERVAL = 0.2  -- Bring mob mỗi 0.2 giây 1 lần
+local _bringAccum = 0
+
+-- Noclip cho mob khi bị bring: tắt CanCollide toàn bộ BasePart của mob để
+-- không bị kẹt/văng ra khi bị teleport chồng lên nhau hoặc dính địa hình
+local function NoclipMob(mob)
+    for _, v in ipairs(mob:GetDescendants()) do
+        if v:IsA("BasePart") and v.CanCollide then
+            v.CanCollide = false
+        end
+    end
+end
 
 RunService.Heartbeat:Connect(function(dt)
     if not getgenv().BringMob then return end
 
+    _bringAccum = _bringAccum + dt
+    if _bringAccum < BRING_INTERVAL then return end
+    _bringAccum = 0
+
     local targetMob = getgenv().CurrentTargetMob
-    if not targetMob or not targetMob.Parent then
-        _lockedBringPos = nil
-        _lastBringTarget = nil
-        return
-    end
+    if not targetMob or not targetMob.Parent then return end
 
     local anyFarmActive = getgenv().IsFarming or getgenv().AutoMaterial
         or getgenv().FarmDungeon or getgenv().FarmEliteHunt
@@ -2021,21 +2109,11 @@ RunService.Heartbeat:Connect(function(dt)
         or getgenv().FarmAura or getgenv().FarmTyrant
     if not anyFarmActive then return end
 
-    -- Bắt buộc check + lock look pos khi đổi target mob
-    if targetMob ~= _lastBringTarget then
-        local thrp = targetMob:FindFirstChild("HumanoidRootPart")
-        local thum = targetMob:FindFirstChild("Humanoid")
-        if not thrp or not thum or thum.Health <= 0 then return end
-        _lastBringTarget = targetMob
-        _lockedBringPos = thrp.CFrame  -- look pos cố định
-    end
-
-    local centerCF = _lockedBringPos
-    if not centerCF then return end
-
-    -- Validate look pos còn dùng được
-    local center = centerCF.Position
-    if typeof(center) ~= "Vector3" then return end
+    -- Vị trí bring = vị trí HIỆN TẠI của mob farm (live, không lock)
+    local targetHRP = targetMob:FindFirstChild("HumanoidRootPart")
+    local targetHum = targetMob:FindFirstChild("Humanoid")
+    if not targetHRP or not targetHum or targetHum.Health <= 0 then return end
+    local center = targetHRP.Position
 
     local myChar = player.Character
     local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -2054,18 +2132,12 @@ RunService.Heartbeat:Connect(function(dt)
 
     local SPIN_RADIUS = 5
     local mobName = targetMob.Name
-    local bringRange = getgenv().BringRange or 350
+    -- Giới hạn cứng 200 stud, dù getgenv().BringRange có bị chỉnh cao hơn
+    local bringRange = math.min(getgenv().BringRange or MAX_BRING_RANGE, MAX_BRING_RANGE)
 
-    -- Thu thập: mob farm + mob cùng loại trong range
+    -- Thu thập: mob cùng loại trong range (không teleport mob farm - nó chính
+    -- là mốc center nên đứng yên tại chỗ)
     local allMobs = {}
-    -- luôn đưa mob farm vào (nếu còn sống)
-    do
-        local hum = targetMob:FindFirstChild("Humanoid")
-        local hrp = targetMob:FindFirstChild("HumanoidRootPart")
-        if hum and hrp and hum.Health > 0 then
-            table.insert(allMobs, targetMob)
-        end
-    end
     for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
         if enemy ~= targetMob then
             local hum = enemy:FindFirstChild("Humanoid")
@@ -2085,8 +2157,8 @@ RunService.Heartbeat:Connect(function(dt)
     end)
 
     if _G.SpinBring then
-        -- Spin: teleport orbit quanh look pos
-        _spinAngle = _spinAngle + (300 / SPIN_RADIUS) * dt
+        -- Spin: teleport orbit quanh mob farm
+        _spinAngle = _spinAngle + (300 / SPIN_RADIUS) * BRING_INTERVAL
         local n = #allMobs
         for i, mob in ipairs(allMobs) do
             pcall(function()
@@ -2096,6 +2168,7 @@ RunService.Heartbeat:Connect(function(dt)
                 -- dọn BV cũ nếu còn
                 local bv = hrp:FindFirstChild("_MobFlyBV")
                 if bv then bv:Destroy() end
+                NoclipMob(mob)
                 local angle = _spinAngle + (2 * math.pi / n) * (i - 1)
                 local orbitPos = Vector3.new(
                     center.X + SPIN_RADIUS * math.cos(angle),
@@ -2110,7 +2183,7 @@ RunService.Heartbeat:Connect(function(dt)
             end)
         end
     else
-        -- Teleport thẳng mọi mob (farm + bring) về look pos
+        -- Teleport thẳng mọi mob cùng loại về vị trí hiện tại của mob farm
         for _, mob in ipairs(allMobs) do
             pcall(function()
                 local hrp = mob:FindFirstChild("HumanoidRootPart")
@@ -2118,6 +2191,7 @@ RunService.Heartbeat:Connect(function(dt)
                 if not hrp or not hum or hum.Health <= 0 then return end
                 local bv = hrp:FindFirstChild("_MobFlyBV")
                 if bv then bv:Destroy() end
+                NoclipMob(mob)
                 hrp.CFrame = CFrame.new(center)
                 hrp.Velocity = Vector3.zero
                 hrp.CanCollide = false
@@ -2127,6 +2201,7 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 end)
+
 
 --// ================= FLY =================
 -- Chest-style: BodyVelocity (MaxForce 1e5) được quản lý bởi vòng lặp bên dưới.
@@ -3119,7 +3194,7 @@ function startLevelFarm()
     -- ENEMY SPAWN STATE (dùng khi không có mob - fly qua EnemySpawns thực tế)
     -- Chỉ hoạt động với Farm LV
     --------------------------------------------------------------------
-    local _spawnPoints    = nil  -- danh sách CFrame lấy từ workspace._WorldOrigin.EnemySpawns
+    local _spawnPoints    = nil  -- danh sách CFrame lấy từ WorldSpawnData (đã quét sẵn cả world)
     local _spawnIndex     = 1    -- chỉ số điểm spawn hiện tại
     local _spawnLastMon   = nil  -- tên mob lần trước để rebuild khi đổi khu
     local _spawnArrivedAt = 0    -- tick() khi đến điểm spawn (để delay trước khi đổi điểm)
@@ -3188,6 +3263,8 @@ function startLevelFarm()
                     pcall(function()
                         ReplicatedStorage.Remotes.CommF_:InvokeServer("StartQuest", Qname, qdataToAccept)
                     end)
+                    -- Mỗi khi vừa nhận quest mới → quét lại pos spawn cả world, merge vào data đã lưu
+                    pcall(ScanWorldSpawns)
                     task.wait(0.5)
                 end
                 return
@@ -3230,7 +3307,8 @@ function startLevelFarm()
                 end
             else
                 -- Không có mob → liên tục tìm EnemySpawn đúng tên mob quest (khớp 100%)
-                -- rồi tween tới các điểm spawn; quét lại định kỳ trong lúc làm quest
+                -- rồi tween tới các điểm spawn theo thứ tự gần nhất; quét lại định kỳ
+                -- trong lúc làm quest
                 getgenv().CurrentTargetMob = nil
 
                 local needRebuild = (_spawnLastMon ~= activeMon)
@@ -3243,37 +3321,22 @@ function startLevelFarm()
                     local oldCount   = _spawnPoints and #_spawnPoints or 0
                     _spawnLastMon   = activeMon
                     _spawnRefreshAt = tick()
-                    _spawnPoints    = {}
                     -- Reset index khi đổi mob hoặc list cũ rỗng
                     if monChanged or oldCount == 0 then
                         _spawnIndex = 1
                     end
                     _spawnArrivedAt = 0
 
-                    local spawnsFolder = workspace:FindFirstChild("_WorldOrigin")
-                        and workspace._WorldOrigin:FindFirstChild("EnemySpawns")
-
-                    if spawnsFolder then
-                        for _, sp in ipairs(spawnsFolder:GetChildren()) do
-                            -- Bắt buộc trùng 100% tên spawn với tên mob trong quest
-                            if sp.Name == activeMon then
-                                local part = sp:IsA("BasePart") and sp
-                                    or sp:FindFirstChildWhichIsA("BasePart")
-                                if part then
-                                    local p = part.Position
-                                    table.insert(_spawnPoints, CFrame.new(p.X, p.Y + 30, p.Z))
-                                end
-                            end
-                        end
-                    end
+                    -- Hết mob → quét lại pos spawn cả world (merge thêm pos mới nếu có,
+                    -- KHÔNG xóa data cũ), sau đó lục trong data đã lưu từ lúc script
+                    -- chạy để lấy toàn bộ pos từng thấy của đúng tên mob quest.
+                    -- KHÔNG fallback về PosM — chỉ dùng đúng pos spawn thật đã quét được.
+                    pcall(ScanWorldSpawns)
+                    _spawnPoints = getgenv().WorldSpawnData[activeMon] or {}
+                    print(("[WorldSpawn] mob=%s -> %d pos đã lưu"):format(tostring(activeMon), #_spawnPoints))
 
                     if _spawnIndex > #_spawnPoints then
                         _spawnIndex = 1
-                    end
-                    -- Fallback: không có EnemySpawn đúng tên → dùng PosM từ QuestNeta
-                    if #_spawnPoints == 0 and activePosM then
-                        local p = activePosM.Position
-                        table.insert(_spawnPoints, CFrame.new(p.X, p.Y + 30, p.Z))
                     end
                 end
 
@@ -3285,7 +3348,7 @@ function startLevelFarm()
                     if root and (root.Position - targetSP.Position).Magnitude <= 20 then
                         if _spawnArrivedAt == 0 then
                             _spawnArrivedAt = tick()
-                        elseif tick() - _spawnArrivedAt >= 0.1 then
+                        elseif tick() - _spawnArrivedAt >= 0.3 then
                             _spawnArrivedAt = 0
                             _spawnIndex     = (_spawnIndex % #_spawnPoints) + 1
                         end
