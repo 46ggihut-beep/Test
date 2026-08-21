@@ -498,36 +498,51 @@ local function doIntermediateTeleport(targetCF, speed)
             end)
             task.wait(0.2)
 
-            -- 2) Đưa player tới portal pos gần Castle
+            -- 2) Bắt buộc tween tới portal, không timeout
             do
-                local deadline = tick() + 8
-                while tick() < deadline do
+                while true do
                     local c = player.Character
                     local h = c and c:FindFirstChild("HumanoidRootPart")
-                    if h then
-                        if (h.Position - portalPos).Magnitude <= 15 then break end
-                        h.CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 0))
+                    if h and (h.Position - portalPos).Magnitude <= 15 then
+                        break
                     end
-                    task.wait()
+                    if h then
+                        local dist = (h.Position - portalPos).Magnitude
+                        local tween = TweenService:Create(
+                            h,
+                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 300), 0.05), Enum.EasingStyle.Linear),
+                            {CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 0))}
+                        )
+                        tween:Play()
+                        tween.Completed:Wait()
+                    else
+                        task.wait()
+                    end
                 end
             end
 
             -- 3) Delay 0.3
             task.wait(0.3)
 
-            -- 4) Đợi / đưa player tới Tiki pos
+            -- 4) Bắt buộc tween tới Tiki, không timeout
             do
-                local deadline = tick() + 12
-                while tick() < deadline do
+                while true do
                     local c = player.Character
                     local h = c and c:FindFirstChild("HumanoidRootPart")
                     if h then
                         local d = (Vector2.new(h.Position.X, h.Position.Z) - Vector2.new(tikiPos.X, tikiPos.Z)).Magnitude
                         if d <= 80 then break end
-                        -- nếu server chưa tele → spam CFrame về Tiki
-                        h.CFrame = CFrame.new(tikiPos + Vector3.new(0, 2, 0))
+                        local dist = (h.Position - (tikiPos + Vector3.new(0, 2, 0))).Magnitude
+                        local tween = TweenService:Create(
+                            h,
+                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 300), 0.05), Enum.EasingStyle.Linear),
+                            {CFrame = CFrame.new(tikiPos + Vector3.new(0, 2, 0))}
+                        )
+                        tween:Play()
+                        tween.Completed:Wait()
+                    else
+                        task.wait()
                     end
-                    task.wait()
                 end
             end
 
@@ -537,19 +552,26 @@ local function doIntermediateTeleport(targetCF, speed)
             pcall(island.request)
             task.wait(0.15)
         else
-            -- World1 / không request: spam CFrame
-            local spamDuration = distToIsland < 5000 and 0.3 or 2
-            local deadline = tick() + spamDuration
-            while tick() < deadline do
+            -- World1 / không request: bắt buộc tween tới đảo trung gian, không timeout
+            while true do
                 local c = player.Character
                 local h = c and c:FindFirstChild("HumanoidRootPart")
-                if h then
-                    h.CFrame = CFrame.new(island.pos + Vector3.new(0, 2, 0))
+                if h and (h.Position - island.pos).Magnitude <= 15 then
+                    break
                 end
-                task.wait()
-            end
-            if distToIsland >= 5000 then
-                task.wait(0.2)
+                if h then
+                    local target = CFrame.new(island.pos + Vector3.new(0, 2, 0))
+                    local distNow = (h.Position - target.Position).Magnitude
+                    local tween = TweenService:Create(
+                        h,
+                        TweenInfo.new(math.max(distNow / (speed or getgenv().FlySpeed or 300), 0.05), Enum.EasingStyle.Linear),
+                        {CFrame = target}
+                    )
+                    tween:Play()
+                    tween.Completed:Wait()
+                else
+                    task.wait()
+                end
             end
         end
 
@@ -1947,8 +1969,8 @@ local function _tp(targetCF, speed)
 
     -- Cách đích ≤ 150 stud → tăng tốc lên 500 để vào tới nơi nhanh hơn
     local effectiveSpeed = speed
-    if dist <= 100 then
-        effectiveSpeed = 700
+    if dist <= 150 then
+        effectiveSpeed = 1000
     end
 
     -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
@@ -3076,16 +3098,15 @@ local function TeleportToSubmerged(finalPos)
         local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
         TweenToPos(farmCF, getgenv().FlySpeed or 300)
 
-        -- Đợi đến nơi (timeout 40s — di chuyển dưới nước chậm hơn)
-        local farmDeadline = tick() + 40
-        repeat
-            task.wait(0.3)
-            if myId ~= _submergedCallId then break end
-            if not getgenv().IsFarming then break end
+        -- Bắt buộc tween tới finalPos, không timeout
+        while myId == _submergedCallId and getgenv().IsFarming do
+            task.wait(0.15)
             local root = getRoot()
-            if not root then break end
-            if (root.Position - finalPos).Magnitude <= 100 then break end
-        until tick() > farmDeadline
+            if root and (root.Position - finalPos).Magnitude <= 100 then
+                break
+            end
+            TweenToPos(farmCF, getgenv().FlySpeed or 300)
+        end
     end
 
     _submergedRunning = false
@@ -6094,14 +6115,15 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                         local root = getRoot()
                         if root and (root.Position - RAID_BUY_POS).Magnitude > 15 then
                             TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
-                            local deadline = tick() + 25
                             repeat
-                                task.wait(0.25)
+                                task.wait(0.15)
                                 root = getRoot()
+                                if root and (root.Position - RAID_BUY_POS).Magnitude > 20 then
+                                    TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
+                                end
                             until not getgenv().AutoRaid
                                 or not root
                                 or (root.Position - RAID_BUY_POS).Magnitude <= 20
-                                or tick() > deadline
                         end
                     end
 
@@ -6109,8 +6131,7 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
 
                     -- Host + có multi: đợi multi tới 3 pos
                     if isHost and HasAnyMultiSelected() then
-                        local waitDeadline = tick() + 60
-                        while getgenv().AutoRaid and not IsInRaid() and tick() < waitDeadline do
+                        while getgenv().AutoRaid and not IsInRaid() do
                             if AreSelectedMultiPlayersReady() then break end
                             local root = getRoot()
                             if root and (root.Position - RAID_BUY_POS).Magnitude > 25 then
@@ -6131,8 +6152,7 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
 
                     StartRaidEntrance()
 
-                    local deadline = tick() + 30
-                    repeat task.wait(0.5) until IsInRaid() or tick() > deadline or not getgenv().AutoRaid
+                    repeat task.wait(0.5) until IsInRaid() or not getgenv().AutoRaid
 
                     if IsInRaid() and getgenv().AutoRaid then
                         task.wait(1)
@@ -6337,13 +6357,12 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                         local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
                         TweenToPos(farmCF, getgenv().FlySpeed or 300)
 
-                        local deadline = tick() + 40
-                        repeat
-                            task.wait(0.3)
+                        while getgenv().TravelToIsland do
+                            task.wait(0.15)
                             local r = getRoot()
-                            if not r then break end
-                            if (r.Position - finalPos).Magnitude <= 100 then break end
-                        until tick() > deadline or not getgenv().TravelToIsland
+                            if r and (r.Position - finalPos).Magnitude <= 100 then break end
+                            TweenToPos(farmCF, getgenv().FlySpeed or 300)
+                        end
                     else
                         -- Chưa ở gần: đi qua NPC ngoài mặt nước, kích hoạt
                         -- TravelToSubmergedIsland, sau đó fly đến vị trí farm
@@ -6366,14 +6385,15 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                 -- TweenToPos tự xử lý tele trung gian nếu TelePorto bật
                 TweenToPos(targetCF, getgenv().FlySpeed or 300)
 
-                -- Đợi đến nơi (tối đa 60s)
-                local deadline = tick() + 60
-                repeat
-                    task.wait(0.3)
+                -- Bắt buộc tween tới đích, không timeout
+                while getgenv().TravelToIsland do
+                    task.wait(0.15)
                     local root = getRoot()
-                    if not root then break end
-                    if (root.Position - data.pos).Magnitude <= 100 then break end
-                until tick() > deadline or not getgenv().TravelToIsland
+                    if root and (root.Position - data.pos).Magnitude <= 100 then
+                        break
+                    end
+                    TweenToPos(targetCF, getgenv().FlySpeed or 300)
+                end
 
                 -- Tắt toggle sau khi đến nơi
                 getgenv().TravelToIsland = false
@@ -6584,15 +6604,19 @@ local function BuyFightingStyle(styleName, styleData, enabled)
             local targetCF = CFrame.new(targetPos + Vector3.new(0, 3, 0))
             TweenToPos(targetCF, getgenv().FlySpeed or 300)
 
-            -- Chờ đến gần NPC hoặc bị tắt toggle hoặc timeout
-            local deadline = tick() + 30
+            -- Bắt buộc tween tới NPC, không timeout
             repeat
-                task.wait(0.2)
+                task.wait(0.15)
                 if not _buyStyleActive[styleName] then break end
                 local r = getRoot()
-                if not r then break end
-                if (r.Position - targetPos).Magnitude <= BUY_PROXIMITY then break end
-            until tick() > deadline
+                if not r then
+                    task.wait()
+                elseif (r.Position - targetPos).Magnitude <= BUY_PROXIMITY then
+                    break
+                else
+                    TweenToPos(targetCF, getgenv().FlySpeed or 300)
+                end
+            until not _buyStyleActive[styleName]
 
             -- Kiểm tra lại: nếu toggle vẫn bật thì mới mua
             if _buyStyleActive[styleName] then
