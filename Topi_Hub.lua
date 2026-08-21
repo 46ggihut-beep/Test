@@ -73,6 +73,15 @@ local lp = player -- Alias ngắn gọn cho LocalPlayer
 if not getgenv().WorldSpawnData then
     getgenv().WorldSpawnData = {} -- [tenMob] = { CFrame, CFrame, ... }
 end
+-- Lưu level (số) của từng tên mob thuần, parse cùng lúc với ScanWorldSpawns,
+-- dùng để hiển thị trong dropdown "Chọn Mob" (Main tab) là "Tên [Lv. X]"
+if not getgenv().WorldMobLevelData then
+    getgenv().WorldMobLevelData = {} -- [tenMob] = level (number)
+end
+-- Đánh dấu mob nào là Boss (dựa vào hậu tố "[Boss]" trong tên spawn gốc)
+if not getgenv().WorldMobBossData then
+    getgenv().WorldMobBossData = {} -- [tenMob] = true/false
+end
 
 local function ScanWorldSpawns()
     local spawnsFolder = Workspace:FindFirstChild("_WorldOrigin")
@@ -97,6 +106,22 @@ local function ScanWorldSpawns()
             if name:match("^Part%d*$") or name:match("^Union%d*$")
                 or name:match("^Spawn%d*$") or name == "SpawnLocation" then
                 name = (part.Parent and part.Parent ~= spawnsFolder and part.Parent.Name) or name
+                rawName = name
+            end
+
+            -- Parse level từ "[Lv. 2450]" (lấy số nguyên đầu tiên tìm được
+            -- trong cặp ngoặc "Lv."); chỉ ghi đè nếu chưa có hoặc số mới lớn
+            -- hơn (phòng world có nhiều khu vực cùng tên mob khác level nhẹ)
+            local lvlStr = rawName:match("%[%s*[Ll][Vv]%.?%s*(%d+)%s*%]")
+            if lvlStr then
+                local lvlNum = tonumber(lvlStr)
+                if lvlNum and (not getgenv().WorldMobLevelData[name] or lvlNum > getgenv().WorldMobLevelData[name]) then
+                    getgenv().WorldMobLevelData[name] = lvlNum
+                end
+            end
+            -- Đánh dấu Boss nếu tên gốc có hậu tố "[Boss]"
+            if rawName:match("%[%s*[Bb]oss%s*%]") then
+                getgenv().WorldMobBossData[name] = true
             end
 
             local p  = part.Position
@@ -123,6 +148,48 @@ local function ScanWorldSpawns()
     end
 end
 getgenv().ScanWorldSpawns = ScanWorldSpawns
+
+--------------------------------------------------------------------
+-- DANH SÁCH MOB CHO DROPDOWN "Chọn Mob" (Main tab)
+-- Trả về 2 giá trị:
+--   display : { "Tên Mob [Lv. X]", ... } đã sort theo level tăng dần,
+--             dùng để đổ vào Values của Dropdown
+--   map     : { [display string] = "Tên Mob thuần" } dùng để tra ngược lại
+--             tên mob thuần (khớp Enemies/quest) khi người dùng chọn
+--------------------------------------------------------------------
+local function GetMobDropdownList()
+    local items = {}
+    for name, posList in pairs(getgenv().WorldSpawnData or {}) do
+        if posList and #posList > 0 then
+            table.insert(items, {
+                name  = name,
+                level = getgenv().WorldMobLevelData and getgenv().WorldMobLevelData[name],
+                boss  = getgenv().WorldMobBossData and getgenv().WorldMobBossData[name],
+            })
+        end
+    end
+    table.sort(items, function(a, b)
+        local la = a.level or math.huge
+        local lb = b.level or math.huge
+        if la ~= lb then return la < lb end
+        return a.name < b.name
+    end)
+
+    local display, map = {}, {}
+    for _, item in ipairs(items) do
+        local label
+        if item.level then
+            label = item.boss and ("%s [Lv. %d] [Boss]"):format(item.name, item.level)
+                or ("%s [Lv. %d]"):format(item.name, item.level)
+        else
+            label = item.name
+        end
+        table.insert(display, label)
+        map[label] = item.name
+    end
+    return display, map
+end
+getgenv().GetMobDropdownList = GetMobDropdownList
 
 -- Quét ngay lập tức lúc script vừa load (bắt toàn bộ pos spawn hiện có trong world)
 task.spawn(function()
@@ -464,7 +531,7 @@ local function doIntermediateTeleport(targetCF, speed)
 
     -- Đã gần điểm trung gian (< 500 stud) → không remote / không spam,
     -- để caller tween thẳng đến đích (giống logic chest farm)
-    if distToIsland < 500 then
+    if distToIsland < 300 then
         return false
     end
 
@@ -972,12 +1039,14 @@ Tabs.Main:CreateDropdown("FarmType", {
             -- Dừng toàn bộ farm đang chạy + reset tất cả flag
             stopLevelFarm(); stopBoneFarm(); stopKataFarm()
             stopAuraFarm(); stopTyrantFarm(); stopPhaBinhFarm()
+            if type(stopSelectMobFarm) == "function" then stopSelectMobFarm() end
             stopFly()
-            getgenv().FarmLevel  = false
-            getgenv().FarmBone   = false
-            getgenv().FarmKata   = false
-            getgenv().FarmAura   = false
-            getgenv().FarmTyrant = false
+            getgenv().FarmLevel     = false
+            getgenv().FarmBone      = false
+            getgenv().FarmKata      = false
+            getgenv().FarmAura      = false
+            getgenv().FarmTyrant    = false
+            getgenv().FarmSelectMob = false
 
             -- Delay 1 giây trước khi bật farm mới
             task.wait(0.3)
@@ -1017,6 +1086,8 @@ Tabs.Main:CreateToggle("AutoFarm", {
         getgenv().FarmTyrant = false
         getgenv().FarmPhaBinh = false
         getgenv().AutoMaterial = false
+        getgenv().FarmSelectMob = false
+        if type(stopSelectMobFarm) == "function" then stopSelectMobFarm() end
         
         getgenv().Noclip = v
         getgenv().IsFarming = v
@@ -1179,11 +1250,103 @@ Tabs.Main:CreateToggle("AutoMaterial", {
         
         if v then
             getgenv().FarmLevel = false
+            getgenv().FarmSelectMob = false
             stopLevelFarm()
+            if type(stopSelectMobFarm) == "function" then stopSelectMobFarm() end
             startFly()
         else
             -- UI callbacks may run before fly functions are defined.
             if type(stopFly) == "function" then stopFly() end
+        end
+    end
+})
+
+-- SECTION 3: SELECT MOB FARM
+-- Dropdown liệt kê TẤT CẢ mob đã quét được trong world (tên + level, lấy từ
+-- WorldSpawnData/WorldMobLevelData — cùng nguồn dữ liệu pos spawn thật).
+-- Chỉ chọn được 1 mob. Bật toggle -> script farm đúng loại mob đó; hết mob
+-- (không còn spawn nào sống) thì tween qua lại các pos spawn thật đã quét
+-- được của đúng mob đó để chờ (dùng chung logic MakeSpawnPatroller/Bone/Kata).
+Tabs.Main:AddSection("Farm Mob Chỉ Định")
+
+local _initMobList, _initMobMap = GetMobDropdownList()
+getgenv().MobDropdownMap = _initMobMap
+
+local SelectMobFarmDD = Tabs.Main:CreateDropdown("SelectMobFarm", {
+    Title = "Chọn Mob (Tên + Level)",
+    Description = "Danh sách quét được từ world. Bấm 'Refresh Danh Sách Mob' nếu chưa thấy mob cần chọn.",
+    Values = (#_initMobList > 0) and _initMobList or {"(Chưa quét được mob nào)"},
+    Multi = false,
+    Default = 1,
+    Callback = GuardDropdown(function(v)
+        local pureName = getgenv().MobDropdownMap and getgenv().MobDropdownMap[v]
+        getgenv().SelectMobName = pureName or v
+    end),
+})
+
+Tabs.Main:CreateButton({
+    Title = "Refresh Danh Sách Mob",
+    Description = "Quét lại world để cập nhật danh sách mob + level mới nhất",
+    Callback = function()
+        pcall(ScanWorldSpawns)
+        local list, map = GetMobDropdownList()
+        getgenv().MobDropdownMap = map
+        local values = (#list > 0) and list or {"(Chưa quét được mob nào)"}
+        pcall(function()
+            if SelectMobFarmDD and SelectMobFarmDD.SetValues then
+                SelectMobFarmDD:SetValues(values)
+            elseif Library.Options and Library.Options.SelectMobFarm then
+                Library.Options.SelectMobFarm:SetValues(values)
+            end
+        end)
+        Library:Notify({
+            Title = "Mob List",
+            Content = "Đã refresh: " .. tostring(#list) .. " loại mob",
+            Duration = 3
+        })
+    end
+})
+
+Tabs.Main:CreateToggle("AutoFarmSelectMob", {
+    Title = "Auto Farm Mob Đã Chọn",
+    Description = "Farm đúng mob đã chọn ở trên; hết mob sẽ tween qua pos spawn thật để chờ.",
+    Default = false,
+    Callback = function(v)
+        if v and not getgenv().SelectMobName then
+            Library:Notify({
+                Title = "Chưa chọn Mob",
+                Content = "Vui lòng chọn 1 mob trong dropdown 'Chọn Mob' trước khi bật.",
+                Duration = 4
+            })
+            return
+        end
+
+        -- Tắt các chế độ farm khác để tránh xung đột (giống Material Farm)
+        getgenv().FarmLevel   = false
+        getgenv().FarmBone    = false
+        getgenv().FarmKata    = false
+        getgenv().FarmAura    = false
+        getgenv().FarmTyrant  = false
+        getgenv().FarmPhaBinh = false
+        getgenv().AutoMaterial = false
+        if type(stopLevelFarm) == "function" then stopLevelFarm() end
+        if type(stopBoneFarm) == "function" then stopBoneFarm() end
+        if type(stopKataFarm) == "function" then stopKataFarm() end
+        if type(stopAuraFarm) == "function" then stopAuraFarm() end
+        if type(stopTyrantFarm) == "function" then stopTyrantFarm() end
+        if type(stopPhaBinhFarm) == "function" then stopPhaBinhFarm() end
+
+        getgenv().FarmSelectMob = v
+        getgenv().IsFarming     = v
+        getgenv().Noclip        = v
+        getgenv().AutoBusoLoop  = v
+
+        if v then
+            startFly()
+            if type(startSelectMobFarm) == "function" then startSelectMobFarm() end
+        else
+            if type(stopFly) == "function" then stopFly() end
+            if type(stopSelectMobFarm) == "function" then stopSelectMobFarm() end
         end
     end
 })
@@ -1840,7 +2003,7 @@ task.spawn(function()
     while task.wait(0) do
         pcall(function()
             local isActive = getgenv().IsFarming
-                or getgenv().AutoMaterial
+                or getgenv().AutoMaterial or getgenv().FarmSelectMob
                 or getgenv().FarmDungeon
             if not isActive then return end
 
@@ -1969,8 +2132,8 @@ local function _tp(targetCF, speed)
 
     -- Cách đích ≤ 150 stud → tăng tốc lên 500 để vào tới nơi nhanh hơn
     local effectiveSpeed = speed
-    if dist <= 150 then
-        effectiveSpeed = 1000
+    if dist <= 100 then
+        effectiveSpeed = 500
     end
 
     -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
@@ -2125,7 +2288,7 @@ RunService.Heartbeat:Connect(function(dt)
     local targetMob = getgenv().CurrentTargetMob
     if not targetMob or not targetMob.Parent then return end
 
-    local anyFarmActive = getgenv().IsFarming or getgenv().AutoMaterial
+    local anyFarmActive = getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob
         or getgenv().FarmDungeon or getgenv().FarmEliteHunt
         or getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
         or getgenv().FarmAura or getgenv().FarmTyrant
@@ -2146,7 +2309,7 @@ RunService.Heartbeat:Connect(function(dt)
         if op ~= player then
             local oc = op.Character
             local oh = oc and oc:FindFirstChild("HumanoidRootPart")
-            if oh and (oh.Position - myHRP.Position).Magnitude <= 500 then
+            if oh and (oh.Position - myHRP.Position).Magnitude <= 200 then
                 return
             end
         end
@@ -2235,7 +2398,7 @@ task.spawn(function()
         pcall(function()
             local char = player.Character; if not char then return end
             local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-            if getgenv().IsFarming or getgenv().AutoMaterial then
+            if getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob then
                 if not hrp:FindFirstChild("BodyClip") then
                     local bv = Instance.new("BodyVelocity")
                     bv.Name     = "BodyClip"
@@ -3474,6 +3637,62 @@ local function MakeSpawnPatroller(mobList, onePerMob)
     return { step = step, reset = reset }
 end
 
+--// ================= SELECT MOB FARM (Farm Mob Chỉ Định) =================
+-- Farm đúng 1 loại mob do người dùng chọn trong dropdown "SelectMobFarm"
+-- (Main tab). Logic giống hệt các farm khác: có mob -> GetFarmCFrame + đánh;
+-- hết mob -> dùng MakeSpawnPatroller tween qua lại toàn bộ pos spawn thật
+-- (WorldSpawnData) đã quét được của đúng mob đó để chờ, xoay vòng liên tục.
+local selectMobFarmConn
+local _selectMobPatroller = nil
+local _selectMobPatrolKey = nil -- tên mob hiện tại, dùng để phát hiện đổi mob -> rebuild patroller
+
+function startSelectMobFarm()
+    if selectMobFarmConn then selectMobFarmConn:Disconnect() end
+
+    selectMobFarmConn = RunService.Heartbeat:Connect(function(dt)
+        if not getgenv().FarmSelectMob then return end
+        local mobName = getgenv().SelectMobName
+        if not mobName then return end
+
+        pcall(function()
+            local root = getRoot()
+            if not root then return end
+
+            local target = GetNearestEnemy(mobName)
+            getgenv().CurrentTargetMob = target
+
+            if target and target:FindFirstChild("HumanoidRootPart") then
+                -- Có mob lại -> lần hết mob kế tiếp patrol lại từ pos đầu
+                if _selectMobPatroller then _selectMobPatroller.reset() end
+                local targetCF = GetFarmCFrame(target)
+                if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
+                AttackEnemy(target)
+            else
+                getgenv().CurrentTargetMob = nil
+                -- Hết mob -> tween qua lại toàn bộ pos spawn thật của đúng mob
+                -- đã chọn (rebuild patroller nếu vừa đổi mob trong dropdown)
+                if _selectMobPatrolKey ~= mobName then
+                    _selectMobPatrolKey = mobName
+                    _selectMobPatroller = MakeSpawnPatroller({mobName}, false)
+                end
+                if _selectMobPatroller then
+                    _selectMobPatroller.step(root, getgenv().FlySpeed)
+                end
+            end
+        end)
+    end)
+end
+
+function stopSelectMobFarm()
+    if selectMobFarmConn then
+        selectMobFarmConn:Disconnect()
+        selectMobFarmConn = nil
+    end
+    _selectMobPatroller = nil
+    _selectMobPatrolKey = nil
+    getgenv().CurrentTargetMob = nil
+end
+
 --// ================= BONE FARM =================
 local boneFarmConn
 local BoneQuestPos = CFrame.new(-9516.99316, 172.017181, 6078.46533)
@@ -4237,7 +4456,7 @@ player.CharacterAdded:Connect(function(newChar)
     local hum = newChar:WaitForChild("Humanoid", 10)
     if hum then
         hum.Died:Connect(function()
-            if (getgenv().IsFarming or getgenv().AutoMaterial) and IsBuddhaFruit() and getgenv().BuddhaFarm then
+            if (getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob) and IsBuddhaFruit() and getgenv().BuddhaFarm then
                 getgenv().BuddhaTransforming = true
                 getgenv().BuddhaActive = false
                 print("Character died - pausing farm until respawn...")
@@ -4247,13 +4466,13 @@ player.CharacterAdded:Connect(function(newChar)
 
     -- ── GENERAL RESPAWN: delay 0.5s sau khi hồi sinh, bật lại fly ──
     -- Áp dụng cho mọi chế độ farm (kể cả khi không dùng Buddha)
-    local anyFarmActive = getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmDungeon
+    local anyFarmActive = getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
     if anyFarmActive then
         task.spawn(function()
             local hrp = newChar:WaitForChild("HumanoidRootPart", 10)
             if not hrp then return end
             task.wait(0.5)
-            if getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmDungeon then
+            if getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon then
                 startFly()
                 print("🔄 Hồi sinh xong — tiếp tục farm sau 0.5s!")
             end
@@ -4308,7 +4527,7 @@ pcall(function()
         local hum = currentChar:FindFirstChildOfClass("Humanoid")
         if hum then
             hum.Died:Connect(function()
-                if (getgenv().IsFarming or getgenv().AutoMaterial) and IsBuddhaFruit() and getgenv().BuddhaFarm then
+                if (getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob) and IsBuddhaFruit() and getgenv().BuddhaFarm then
                     getgenv().BuddhaTransforming = true
                     getgenv().BuddhaActive = false
                     print("Character died - pausing farm until respawn...")
@@ -4605,7 +4824,7 @@ local function startEliteHunt()
                     -- Tắt fly + farming nếu không có normal farm chạy song song
                     local anyNormalFarm = getgenv().FarmLevel or getgenv().FarmBone
                         or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                        or getgenv().AutoMaterial or getgenv().FarmDungeon
+                        or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
                     if not anyNormalFarm then
                         getgenv().IsFarming = false
                         getgenv().Noclip = false
@@ -4686,7 +4905,7 @@ Q:OnChanged(function(Value)
         -- Bật fly/farm ngay nếu đang có normal farm chạy
         local anyNormalFarm = getgenv().FarmLevel or getgenv().FarmBone
             or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-            or getgenv().AutoMaterial or getgenv().FarmDungeon
+            or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
         if anyNormalFarm and not getgenv().IsFarming then
             getgenv().IsFarming = true
             getgenv().Noclip = true
@@ -4710,7 +4929,7 @@ Q:OnChanged(function(Value)
     else
         stopEliteHunt()
         local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial
+            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
             or getgenv().FarmDungeon
         if not anyFarmActive then
             getgenv().IsFarming = false
@@ -4749,7 +4968,7 @@ AutoSea2Toggle:OnChanged(function(v)
         Library:Notify({ Title = "Auto Sea 2", Content = "Đã bật — đang xử lý Travel Dressrosa...", Duration = 3 })
     else
         local anyFarm = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial
+            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
             or getgenv().FarmDungeon or getgenv().AutoZou or getgenv().FarmEliteHunt
         if not anyFarm then
             getgenv().IsFarming = false
@@ -4831,7 +5050,7 @@ AutoSea3Toggle:OnChanged(function(v)
         Library:Notify({ Title = "Auto Sea 3", Content = "Đã bật — đang xử lý Travel Zou...", Duration = 3 })
     else
         local anyFarm = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial
+            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
             or getgenv().FarmDungeon or getgenv().TravelDres or getgenv().FarmEliteHunt
         if not anyFarm then
             getgenv().IsFarming = false
@@ -5202,7 +5421,7 @@ Tabs.FruitRaid:CreateToggle("DungeonFarm", {
             -- Chi tat IsFarming neu khong co farm nao khac dang chay
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
                 or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().FarmEliteHunt
-                or getgenv().AutoMaterial
+                or getgenv().AutoMaterial or getgenv().FarmSelectMob
             if not anyFarmActive then
                 getgenv().IsFarming = false
                 getgenv().Noclip = false
@@ -5460,7 +5679,7 @@ local function startFruitPick(targetHandle)
 
             local anyNormalFarm = getgenv().FarmLevel or getgenv().FarmBone
                 or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                or getgenv().AutoMaterial or getgenv().FarmDungeon
+                or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
             if not anyNormalFarm then
                 getgenv().IsFarming = false
                 getgenv().Noclip = false
@@ -5535,7 +5754,7 @@ Tabs.FruitRaid:CreateToggle("TwF", {
             stopFruitWatcher()
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
                 or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                or getgenv().AutoMaterial or getgenv().FarmDungeon
+                or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
                 or getgenv().AutoRaid or getgenv().RaidOnly
             if not anyFarmActive then
                 getgenv().IsFarming = false
@@ -5883,7 +6102,7 @@ end
 local function anyOtherFarmActive()
     return getgenv().FarmLevel or getgenv().FarmBone
         or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-        or getgenv().AutoMaterial or getgenv().FarmDungeon
+        or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
 end
 
 --------------------------------------------------------------------
@@ -6327,7 +6546,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
             -- Tắt fly nếu không có farm nào khác đang chạy
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
                 or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                or getgenv().AutoMaterial or getgenv().FarmDungeon or getgenv().AutoRaid
+                or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon or getgenv().AutoRaid
             if not anyFarmActive then
                 getgenv().IsFarming = false
                 stopFly()
@@ -6373,7 +6592,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                     TravelIslandToggle:SetValue(false)
                     local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
                         or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                        or getgenv().AutoMaterial or getgenv().FarmDungeon or getgenv().AutoRaid
+                        or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon or getgenv().AutoRaid
                     if not anyFarmActive then
                         getgenv().IsFarming = false
                         stopFly()
@@ -6400,7 +6619,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                 TravelIslandToggle:SetValue(false)
                 local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
                     or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                    or getgenv().AutoMaterial or getgenv().FarmDungeon or getgenv().AutoRaid
+                    or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon or getgenv().AutoRaid
                 if not anyFarmActive then
                     getgenv().IsFarming = false
                     stopFly()
@@ -6438,7 +6657,7 @@ local GoNPCs = Tabs.Travel:CreateToggle("GoNPCs", {
         else
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
                 or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                or getgenv().AutoMaterial or getgenv().FarmDungeon or getgenv().AutoRaid
+                or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon or getgenv().AutoRaid
             if not anyFarmActive then
                 getgenv().IsFarming = false
                 stopFly()
@@ -6649,7 +6868,7 @@ local function BuyFightingStyle(styleName, styleData, enabled)
 
             -- Tắt fly nếu không có farm nào khác
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-                or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial
+                or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
                 or getgenv().FarmDungeon
             if not anyFarmActive then
                 getgenv().IsFarming = false
