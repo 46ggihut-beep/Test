@@ -1947,8 +1947,8 @@ local function _tp(targetCF, speed)
 
     -- Cách đích ≤ 150 stud → tăng tốc lên 500 để vào tới nơi nhanh hơn
     local effectiveSpeed = speed
-    if dist <= 100 then
-        effectiveSpeed = 600
+    if dist <= 150 then
+        effectiveSpeed = 1000
     end
 
     -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
@@ -4408,6 +4408,7 @@ Library:Notify({Title = "Script Loaded", Content = "All Features Ready + Buddha 
 --------------------------------------------------------------------
 -- TAB QUESTS: AUTO ELITE QUEST
 --------------------------------------------------------------------
+local function SetupQuestsStatsFruit()
 Tabs.Quests:AddSection("Elite Hunt")
 
 local EliteNames = {"Diablo", "Urban", "Deandre"}
@@ -5524,11 +5525,15 @@ Tabs.FruitRaid:CreateToggle("TwF", {
     end
 })
 
+end
+SetupQuestsStatsFruit()
+
 --------------------------------------------------------------------
 -- RAID SECTION (DUNGEON EVENT / RAIDING)
 --------------------------------------------------------------------
 
 -- Hàm kiểm tra có chip / item không (backpack + character)
+local function SetupRaidSection()
 local function GetBP(itemName)
     for _, v in pairs(player.Backpack:GetChildren()) do
         if v.Name == itemName then return true end
@@ -5539,13 +5544,12 @@ local function GetBP(itemName)
     return false
 end
 
--- Hàm teleport trực tiếp
-local function _tp(cf)
+-- Teleport trực tiếp (không đụng _tp tween global)
+local function RaidDirectTP(cf)
     local root = getRoot()
     if root then root.CFrame = cf end
 end
 
--- Hàm kiểm tra mob có phải raid mob / boss / không di chuyển không
 local function IsRaidMob(mob)
     local n = mob.Name:lower()
     if n:find("raid") or n:find("microchip") or n:find("island") then return true end
@@ -5556,7 +5560,6 @@ local function IsRaidMob(mob)
     return false
 end
 
--- Hàm kiểm tra đang trong raid
 local function IsInRaid()
     local ok, result = pcall(function()
         return player.PlayerGui.Main.TopHUDList.RaidTimer.Visible
@@ -5564,7 +5567,6 @@ local function IsInRaid()
     return ok and result == true
 end
 
--- Hàm lấy đảo raid theo thứ tự 5→1 (chỉ đảo chưa có mob hoặc đang đứng gần)
 local function IsIslandRaid(cu)
     local ok, locs = pcall(function() return workspace["_WorldOrigin"].Locations end)
     if not ok or not locs then return nil end
@@ -5590,16 +5592,284 @@ local function getNextRaidIsland()
     return nil
 end
 
--- Flags
-getgenv().AutoRaid      = false
-getgenv().RaidOnly      = false   -- Toggle "Raid": chỉ farm bên trong raid, không mua chip / start raid
-getgenv().SelectChip    = "Ice"
-getgenv().RaidKillAura  = true    -- Dùng Kill Aura ở đảo 4+5 (mặc định bật)
+--------------------------------------------------------------------
+-- RAID POSITIONS (World 2 / World 3)
+--------------------------------------------------------------------
+local RAID_BUY_POS = World2 and Vector3.new(-6523.37, 307.79, -4653.12)
+    or Vector3.new(-5032.87, 315.01, -2949.69)
 
--- ===== UI =====
+local RAID_WAIT_POS = World2 and {
+    Vector3.new(-6476.92, 307.79, -4653.52),
+    Vector3.new(-6397.91, 307.66, -4657.31),
+    Vector3.new(-6349.91, 307.77, -4658.15),
+} or {
+    Vector3.new(-5018.13, 315.02, -2912.52),
+    Vector3.new(-5003.96, 315.01, -2876.53),
+    Vector3.new(-4987.81, 315.02, -2838.66),
+}
+
+local RAID_WAIT_RADIUS = 10
+
+--------------------------------------------------------------------
+-- FLAGS
+--------------------------------------------------------------------
+getgenv().AutoBuyChip              = false
+getgenv().AutoRaid                 = false
+getgenv().PlayerBuyChip            = false
+getgenv().AutoJoinRaid             = false
+getgenv().SelectChip               = "Ice"
+getgenv().SelectedBuyChipPlayer    = nil
+getgenv().SelectedMultiRaidPlayers = {}
+getgenv().RaidOnly                 = false -- compat alias
+
+--------------------------------------------------------------------
+-- PLAYER LIST HELPERS
+--------------------------------------------------------------------
+local function GetOtherPlayerNames()
+    local names = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            table.insert(names, p.Name)
+        end
+    end
+    table.sort(names)
+    if #names == 0 then
+        table.insert(names, "(Không có player khác)")
+    end
+    return names
+end
+
+local function IsPlayerNearPos(plr, pos, radius)
+    if not plr or not plr.Character then return false end
+    local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    return (hrp.Position - pos).Magnitude <= (radius or RAID_WAIT_RADIUS)
+end
+
+local function AreSelectedMultiPlayersReady()
+    local selected = getgenv().SelectedMultiRaidPlayers or {}
+    for name, on in pairs(selected) do
+        if on and name ~= "(Không có player khác)" then
+            local plr = Players:FindFirstChild(name)
+            if not plr then return false end
+            local near = false
+            for _, pos in ipairs(RAID_WAIT_POS) do
+                if IsPlayerNearPos(plr, pos, RAID_WAIT_RADIUS) then
+                    near = true
+                    break
+                end
+            end
+            if not near then return false end
+        end
+    end
+    return true
+end
+
+local function HasAnyMultiSelected()
+    local selected = getgenv().SelectedMultiRaidPlayers or {}
+    for name, on in pairs(selected) do
+        if on and name ~= "(Không có player khác)" then
+            return true
+        end
+    end
+    return false
+end
+
+local function FindEmptyWaitPos()
+    for _, pos in ipairs(RAID_WAIT_POS) do
+        local occupied = false
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player and IsPlayerNearPos(p, pos, RAID_WAIT_RADIUS) then
+                occupied = true
+                break
+            end
+        end
+        if not occupied then
+            return pos
+        end
+    end
+    return RAID_WAIT_POS[1]
+end
+
+--------------------------------------------------------------------
+-- BUY CHIP (chỉ mua, không join)
+--------------------------------------------------------------------
+local function BuySelectedChip()
+    if IsInRaid() then return false end
+    if GetBP("Special Microchip") then return true end
+
+    local chip = getgenv().SelectChip or "Ice"
+    pcall(function()
+        ReplicatedStorage.Remotes.CommF_:InvokeServer("RaidsNpc", "Select", chip)
+    end)
+
+    if not GetBP("Special Microchip") then
+        pcall(function()
+            local fruits = ReplicatedStorage.Remotes.CommF_:InvokeServer("GetFruits")
+            for _, data in pairs(fruits or {}) do
+                if GetBP("Special Microchip") then break end
+                local rarity = tostring(data.Rarity or ""):lower()
+                if (data.Price or 0) <= 1150000
+                or rarity == "common" or rarity == "uncommon" or rarity == "rare" then
+                    ReplicatedStorage.Remotes.CommF_:InvokeServer("LoadFruit", data.Name)
+                    ReplicatedStorage.Remotes.CommF_:InvokeServer("RaidsNpc", "Select", chip)
+                end
+            end
+        end)
+    end
+    return GetBP("Special Microchip")
+end
+
+--------------------------------------------------------------------
+-- START RAID ENTRANCE
+--------------------------------------------------------------------
+local function StartRaidEntrance()
+    if IsInRaid() then return end
+    if not GetBP("Special Microchip") then return end
+
+    if World2 then
+        RaidDirectTP(CFrame.new(RAID_BUY_POS + Vector3.new(0, 2, 0)))
+        task.wait(0.3)
+        pcall(function()
+            fireclickdetector(workspace.Map.CircleIsland.RaidSummon2.Button.Main.ClickDetector)
+        end)
+    elseif World3 then
+        pcall(function()
+            ReplicatedStorage.Remotes.CommF_:InvokeServer("requestEntrance",
+                Vector3.new(-5097.93164, 316.447021, -3142.66602,
+                    -0.405007899, -4.31682743e-08, 0.914313197,
+                    -1.90943332e-08, 1, 3.8755779e-08,
+                    -0.914313197, -1.76180437e-09, -0.405007899))
+        end)
+        task.wait(0.3)
+        pcall(function()
+            fireclickdetector(workspace.Map["Boat Castle"].RaidSummon2.Button.Main.ClickDetector)
+        end)
+    end
+end
+
+--------------------------------------------------------------------
+-- FARM RAID LOOP
+--------------------------------------------------------------------
+local raidFarmConn = nil
+
+local function stopRaidFarmLoop()
+    if raidFarmConn then
+        pcall(function() raidFarmConn:Disconnect() end)
+        raidFarmConn = nil
+    end
+    getgenv().CurrentTargetMob = nil
+end
+
+local function startRaidFarmLoop(isActiveFn, isMultiRaid)
+    stopRaidFarmLoop()
+
+    -- Chỉ áp dụng safety HP / đảo 5 cho MULTI JOIN.
+    local multiRaidSafeCF = nil
+
+    raidFarmConn = RunService.Heartbeat:Connect(function()
+        if not isActiveFn() then return end
+        if not IsInRaid() then
+            stopRaidFarmLoop()
+            return
+        end
+
+        local root = getRoot()
+        if not root then return end
+
+        ----------------------------------------------------------------
+        -- MULTI JOIN SAFETY:
+        -- HP < 40% max HP HOẶC HP < 7000 → đưa player lên Y +500.
+        ----------------------------------------------------------------
+        local humanoid = root.Parent and root.Parent:FindFirstChildOfClass("Humanoid")
+        if isMultiRaid and humanoid and humanoid.Health > 0 then
+            local hp = humanoid.Health
+            local maxHp = humanoid.MaxHealth
+            local lowByPercent = maxHp > 0 and hp < (maxHp * 0.40)
+            local lowBy7000 = hp < 7000
+
+            if lowByPercent or lowBy7000 then
+                if not multiRaidSafeCF then
+                    multiRaidSafeCF = CFrame.new(
+                        root.Position.X,
+                        root.Position.Y + 500,
+                        root.Position.Z
+                    )
+                end
+
+                TweenObject(root, multiRaidSafeCF, getgenv().FlySpeed or 300)
+                getgenv().CurrentTargetMob = nil
+                return
+            else
+                -- HP an toàn → cho farm tiếp; lần sau HP thấp sẽ tạo
+                -- một safety position mới từ vị trí hiện tại.
+                multiRaidSafeCF = nil
+            end
+        end
+
+        ----------------------------------------------------------------
+        -- MULTI JOIN: khi tới ĐẢO 5 thì DỪNG FARM MOB RAID.
+        -- Tween tới pos đảo 5 và nâng Y +500 để đứng chờ mob.
+        ----------------------------------------------------------------
+        if isMultiRaid then
+            local island5 = IsIslandRaid(5)
+            if island5 then
+                getgenv().CurrentTargetMob = nil
+                TweenObject(
+                    root,
+                    island5.CFrame * CFrame.new(0, 500, 0),
+                    getgenv().FlySpeed or 300
+                )
+                return
+            end
+        end
+
+        local nearest, nearestDist = nil, math.huge
+        local inRange = {}
+        for _, mob in pairs(workspace.Enemies:GetChildren()) do
+            if mob:FindFirstChild("Humanoid")
+            and mob:FindFirstChild("HumanoidRootPart")
+            and mob.Humanoid.Health > 0
+            and not IsRaidMob(mob) then
+                local dist = (mob.HumanoidRootPart.Position - root.Position).Magnitude
+                if dist <= 2000 then
+                    table.insert(inRange, mob)
+                    if dist < nearestDist then
+                        nearestDist = dist
+                        nearest = mob
+                    end
+                end
+            end
+        end
+
+        getgenv().CurrentTargetMob = nearest
+
+        if nearest then
+            local targetCF = GetFarmCFrame(nearest)
+            if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
+            for _, mob in ipairs(inRange) do
+                AttackEnemy(mob)
+            end
+        else
+            local nextIsland = getNextRaidIsland()
+            if nextIsland then
+                TweenObject(root, nextIsland.CFrame * CFrame.new(0, 80, 0), getgenv().FlySpeed)
+            end
+        end
+    end)
+end
+
+local function anyOtherFarmActive()
+    return getgenv().FarmLevel or getgenv().FarmBone
+        or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+        or getgenv().AutoMaterial or getgenv().FarmDungeon
+end
+
+--------------------------------------------------------------------
+-- UI
+--------------------------------------------------------------------
 Tabs.FruitRaid:AddSection("Dungeon Event / Raiding")
 
--- Dropdown chọn loại chip
 Tabs.FruitRaid:CreateDropdown("RaidChipSelect", {
     Title = "Select Chip",
     Description = "Loại chip dùng để start raid",
@@ -5614,205 +5884,139 @@ Tabs.FruitRaid:CreateDropdown("RaidChipSelect", {
     end),
 })
 
--- Toggle duy nhất: toàn bộ quy trình Raid
-local raidFarmConn = nil
+--------------------------------------------------------------------
+-- TOGGLE: AUTO BUY CHIP
+--------------------------------------------------------------------
+Tabs.FruitRaid:CreateToggle("AutoBuyChip", {
+    Title = "Auto Buy Chip",
+    Description = "Chỉ mua chip đã chọn khi KHÔNG ở trong raid. Không join / không farm.",
+    Default = false,
+    Callback = function(v)
+        getgenv().AutoBuyChip = v
+        if not v then return end
+        task.spawn(function()
+            while getgenv().AutoBuyChip do
+                pcall(function()
+                    if not IsInRaid() and not GetBP("Special Microchip") then
+                        BuySelectedChip()
+                    end
+                end)
+                task.wait(1.5)
+            end
+        end)
+    end
+})
 
+--------------------------------------------------------------------
+-- MULTI RAID UI
+--------------------------------------------------------------------
+Tabs.FruitRaid:AddSection("Multi Raid / Player Select")
+
+local playerNamesInit = GetOtherPlayerNames()
+
+local SelectPlayerBuyChipDD = Tabs.FruitRaid:CreateDropdown("SelectPlayerBuyChip", {
+    Title = "Select Player Buy Chip",
+    Description = "Chọn 1 player làm người mua chip (host)",
+    Values = playerNamesInit,
+    Multi = false,
+    Default = 1,
+    Callback = GuardDropdown(function(v)
+        if v and v ~= "(Không có player khác)" then
+            getgenv().SelectedBuyChipPlayer = v
+        else
+            getgenv().SelectedBuyChipPlayer = nil
+        end
+    end),
+})
+
+local SelectPlayerMultiRaidDD = Tabs.FruitRaid:CreateDropdown("SelectPlayerMultiRaid", {
+    Title = "Select Player Multi Raid",
+    Description = "Chọn nhiều player multi đứng chờ (có thể chọn nhiều)",
+    Values = playerNamesInit,
+    Multi = true,
+    Default = {},
+    Callback = GuardDropdown(function(v)
+        local map = {}
+        if type(v) == "table" then
+            if #v > 0 then
+                for _, name in ipairs(v) do
+                    if name and name ~= "(Không có player khác)" then
+                        map[name] = true
+                    end
+                end
+            else
+                for name, on in pairs(v) do
+                    if on and name ~= "(Không có player khác)" then
+                        map[name] = true
+                    end
+                end
+            end
+        elseif type(v) == "string" and v ~= "(Không có player khác)" then
+            map[v] = true
+        end
+        getgenv().SelectedMultiRaidPlayers = map
+    end),
+})
+
+Tabs.FruitRaid:CreateButton({
+    Title = "Reset Player List",
+    Description = "Load lại danh sách player trong 2 dropdown",
+    Callback = function()
+        local names = GetOtherPlayerNames()
+        pcall(function()
+            if SelectPlayerBuyChipDD and SelectPlayerBuyChipDD.SetValues then
+                SelectPlayerBuyChipDD:SetValues(names)
+            elseif Library.Options and Library.Options.SelectPlayerBuyChip then
+                Library.Options.SelectPlayerBuyChip:SetValues(names)
+            end
+        end)
+        pcall(function()
+            if SelectPlayerMultiRaidDD and SelectPlayerMultiRaidDD.SetValues then
+                SelectPlayerMultiRaidDD:SetValues(names)
+            elseif Library.Options and Library.Options.SelectPlayerMultiRaid then
+                Library.Options.SelectPlayerMultiRaid:SetValues(names)
+            end
+        end)
+        Library:Notify({
+            Title = "Player List",
+            Content = "Đã refresh: " .. tostring(#names) .. " player(s)",
+            Duration = 3
+        })
+    end
+})
+
+Tabs.FruitRaid:CreateToggle("PlayerBuyChip", {
+    Title = "Player Buy Chip",
+    Description = "Bật = bạn là host (mua chip + chờ multi). Tắt = bạn là multi (đứng chờ pos).",
+    Default = false,
+    Callback = function(v)
+        getgenv().PlayerBuyChip = v
+    end
+})
+
+Tabs.FruitRaid:CreateToggle("AutoJoinRaid", {
+    Title = "Auto Join Raid",
+    Description = "Multi: auto đứng pos chờ + join khi host vào. Host: dùng cùng Auto Raid.",
+    Default = false,
+    Callback = function(v)
+        getgenv().AutoJoinRaid = v
+    end
+})
+
+--------------------------------------------------------------------
+-- TOGGLE: AUTO RAID (join + farm)
+--------------------------------------------------------------------
 Tabs.FruitRaid:CreateToggle("AutoRaid", {
     Title = "Auto Raid",
-    Description = "Mua chip → Start Raid → Farm mob (2000 stud) → Qua đảo → Lặp lại",
+    Description = "Auto join raid + farm. Nếu đã trong raid thì chỉ farm. Hỗ trợ Multi Raid.",
     Default = false,
     Callback = function(v)
         getgenv().AutoRaid = v
-
-        if not v then
-            -- Tắt hoàn toàn
-            if raidFarmConn then raidFarmConn:Disconnect(); raidFarmConn = nil end
-            getgenv().CurrentTargetMob = nil
-            local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
-                or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                or getgenv().AutoMaterial or getgenv().FarmDungeon
-            if not anyFarmActive then
-                getgenv().IsFarming = false
-                getgenv().AutoBusoLoop = false
-                getgenv().Noclip = false
-                stopFly()
-            end
-            return
-        end
-
-        -- Bật fly + haki + flags chung
-        getgenv().IsFarming  = true
-        getgenv().Noclip     = true
-        getgenv().AutoBusoLoop = true
-        startFly()
-
-        -- Luồng chính chạy trong coroutine để không block Heartbeat
-        task.spawn(function()
-            while getgenv().AutoRaid do
-                pcall(function()
-
-                    -- ── BƯỚC 1: Mua chip nếu chưa có ──────────────────────
-                    if not IsInRaid() and not GetBP("Special Microchip") then
-
-                        -- Thử mua bằng Beli trước
-                        local boughtBeli = false
-                        pcall(function()
-                            ReplicatedStorage.Remotes.CommF_:InvokeServer(
-                                "RaidsNpc", "Select", getgenv().SelectChip or "Ice")
-                            boughtBeli = true
-                        end)
-
-                        -- Nếu mua bằng Beli không được → thử dùng fruit
-                        if not boughtBeli or not GetBP("Special Microchip") then
-                            pcall(function()
-                                local fruits = ReplicatedStorage.Remotes.CommF_:InvokeServer("GetFruits")
-                                for _, data in pairs(fruits or {}) do
-                                    if GetBP("Special Microchip") then break end
-                                    local rarity = tostring(data.Rarity or ""):lower()
-                                    if (data.Price or 0) <= 1150000
-                                    or rarity == "common" or rarity == "uncommon" or rarity == "rare" then
-                                        ReplicatedStorage.Remotes.CommF_:InvokeServer("LoadFruit", data.Name)
-                                        ReplicatedStorage.Remotes.CommF_:InvokeServer(
-                                            "RaidsNpc", "Select", getgenv().SelectChip or "Ice")
-                                    end
-                                end
-                            end)
-                        end
-
-                        task.wait(0.5) -- Delay sau khi mua chip
-                    end
-
-                    -- ── BƯỚC 2: Start Raid nếu chưa vào ──────────────────
-                    if not IsInRaid() and GetBP("Special Microchip") then
-                        if World2 then
-                            _tp(CFrame.new(-6438.73535, 250.645355, -4501.50684))
-                            task.wait(0.3)
-                            pcall(function()
-                                fireclickdetector(workspace.Map.CircleIsland.RaidSummon2.Button.Main.ClickDetector)
-                            end)
-                        elseif World3 then
-                            pcall(function()
-                                ReplicatedStorage.Remotes.CommF_:InvokeServer("requestEntrance",
-                                    Vector3.new(-5097.93164, 316.447021, -3142.66602,
-                                        -0.405007899, -4.31682743e-08, 0.914313197,
-                                        -1.90943332e-08, 1, 3.8755779e-08,
-                                        -0.914313197, -1.76180437e-09, -0.405007899))
-                            end)
-                            task.wait(0.3)
-                            pcall(function()
-                                fireclickdetector(workspace.Map["Boat Castle"].RaidSummon2.Button.Main.ClickDetector)
-                            end)
-                        end
-
-                        -- Đợi server teleport vào raid (tối đa 30s)
-                        local deadline = tick() + 30
-                        repeat task.wait(0.5) until IsInRaid() or tick() > deadline or not getgenv().AutoRaid
-                        if not getgenv().AutoRaid then return end
-
-                        task.wait(1) -- Buffer cho map raid load
-                    end
-
-                    -- ── BƯỚC 3: Bật Heartbeat farm nếu đang trong raid ───
-                    if IsInRaid() then
-                        if raidFarmConn then raidFarmConn:Disconnect(); raidFarmConn = nil end
-
-                        raidFarmConn = RunService.Heartbeat:Connect(function()
-                            if not getgenv().AutoRaid then return end
-
-                            -- Khi raid kết thúc → dừng Heartbeat, vòng while sẽ lo bước tiếp
-                            if not IsInRaid() then
-                                if raidFarmConn then raidFarmConn:Disconnect(); raidFarmConn = nil end
-                                getgenv().CurrentTargetMob = nil
-                                return
-                            end
-
-                            local root = getRoot()
-                            if not root then return end
-
-                            -- ── KILL AURA (chỉ đảo 4 & 5, chỉ khi bật): kill mob trong 2000 stud ──
-                            -- Farm bình thường vẫn chạy bên dưới song song để không miss mob
-                            local onHighIsland = IsIslandRaid(4) or IsIslandRaid(5)
-                            if onHighIsland and getgenv().RaidKillAura then
-                                for _, enemy in pairs(workspace.Enemies:GetChildren()) do
-                                    if enemy:FindFirstChild("Humanoid")
-                                    and enemy:FindFirstChild("HumanoidRootPart")
-                                    and enemy.Humanoid.Health > 0
-                                    and not IsRaidMob(enemy) then
-                                        local dist = (enemy.HumanoidRootPart.Position - root.Position).Magnitude
-                                        if dist <= 2000 then
-                                            pcall(function()
-                                                sethiddenproperty(player, "SimulationRadius", math.huge)
-                                                enemy.Humanoid.Health = 0
-                                                enemy:BreakJoints()
-                                                enemy.HumanoidRootPart.CanCollide = false
-                                            end)
-                                        end
-                                    end
-                                end
-                            end
-
-                            -- ── FARM THƯỜNG (mọi đảo, mọi lúc): tween đến mob gần nhất + attack ──
-                            -- Đảm bảo farm tiếp tục kể cả khi kill aura hụt
-                            local nearest, nearestDist = nil, math.huge
-                            for _, mob in pairs(workspace.Enemies:GetChildren()) do
-                                if mob:FindFirstChild("Humanoid")
-                                and mob:FindFirstChild("HumanoidRootPart")
-                                and mob.Humanoid.Health > 0
-                                and not IsRaidMob(mob) then
-                                    local dist = (mob.HumanoidRootPart.Position - root.Position).Magnitude
-                                    if dist <= 2000 and dist < nearestDist then
-                                        nearestDist = dist
-                                        nearest = mob
-                                    end
-                                end
-                            end
-
-                            getgenv().CurrentTargetMob = nearest
-
-                            if nearest then
-                                local targetCF = GetFarmCFrame(nearest)
-                                if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
-                                AttackEnemy(nearest)
-                            else
-                                -- Không có mob trong 2000 stud → di chuyển đến đảo tiếp theo
-                                local nextIsland = getNextRaidIsland()
-                                if nextIsland then
-                                    TweenObject(root, nextIsland.CFrame * CFrame.new(0, 50, 0), getgenv().FlySpeed)
-                                end
-                            end
-                        end)
-
-                        -- Chờ raid kết thúc
-                        repeat task.wait(1) until not IsInRaid() or not getgenv().AutoRaid
-                        if raidFarmConn then raidFarmConn:Disconnect(); raidFarmConn = nil end
-                        getgenv().CurrentTargetMob = nil
-                    end
-
-                end) -- end pcall
-                task.wait(1)
-            end -- end while
-        end) -- end task.spawn
-    end
-})
-
--- ===== TOGGLE: RAID (chỉ farm bên trong raid, không mua chip / không start raid) =====
-local raidOnlyConn = nil
-
-Tabs.FruitRaid:CreateToggle("RaidOnly", {
-    Title = "Raid",
-    Description = "Chỉ auto farm bên trong raid (không mua chip, không start raid). Phải vào raid thủ công trước.",
-    Default = false,
-    Callback = function(v)
         getgenv().RaidOnly = v
 
         if not v then
-            -- Tắt hoàn toàn
-            if raidOnlyConn then raidOnlyConn:Disconnect(); raidOnlyConn = nil end
-            getgenv().CurrentTargetMob = nil
-            local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
-                or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
-                or getgenv().AutoMaterial or getgenv().FarmDungeon or getgenv().AutoRaid
-            if not anyFarmActive then
+            stopRaidFarmLoop()
+            if not anyOtherFarmActive() and not getgenv().AutoBuyChip then
                 getgenv().IsFarming = false
                 getgenv().AutoBusoLoop = false
                 getgenv().Noclip = false
@@ -5821,118 +6025,137 @@ Tabs.FruitRaid:CreateToggle("RaidOnly", {
             return
         end
 
-        -- Bật fly + haki + flags chung
-        getgenv().IsFarming    = true
-        getgenv().Noclip       = true
+        getgenv().IsFarming = true
+        getgenv().Noclip = true
         getgenv().AutoBusoLoop = true
         startFly()
 
-        -- Luồng chính: chờ cho đến khi vào raid rồi bắt đầu farm
         task.spawn(function()
-            while getgenv().RaidOnly do
+            while getgenv().AutoRaid do
                 pcall(function()
+                    local isHost  = getgenv().PlayerBuyChip
+                    local isMulti = getgenv().AutoJoinRaid and not isHost
 
-                    -- ── Chờ cho đến khi player đang trong raid ──────────
-                    if not IsInRaid() then
-                        task.wait(1)
+                    -- ĐÃ TRONG RAID → chỉ farm
+                    -- Chỉ MULTI JOIN được áp dụng safety HP + đảo 5.
+                    if IsInRaid() then
+                        startRaidFarmLoop(function() return getgenv().AutoRaid end, isMulti)
+                        repeat task.wait(1) until not IsInRaid() or not getgenv().AutoRaid
+                        stopRaidFarmLoop()
                         return
                     end
 
-                    -- ── Bật Heartbeat farm khi đang trong raid ───────────
-                    if raidOnlyConn then raidOnlyConn:Disconnect(); raidOnlyConn = nil end
-
-                    raidOnlyConn = RunService.Heartbeat:Connect(function()
-                        if not getgenv().RaidOnly then return end
-
-                        -- Raid kết thúc → dừng Heartbeat
-                        if not IsInRaid() then
-                            if raidOnlyConn then raidOnlyConn:Disconnect(); raidOnlyConn = nil end
-                            getgenv().CurrentTargetMob = nil
+                    -- MULTI: bám host nếu host chưa ở pos chờ; nếu host đã ở pos chờ → đứng pos trống
+                    -- Khi đã vào raid thì nhánh IsInRaid ở trên lo farm, không bám nữa
+                    if isMulti then
+                        local root = getRoot()
+                        if not root then
+                            task.wait(0.3)
                             return
                         end
 
-                        local root = getRoot()
-                        if not root then return end
+                        -- Tìm player host (Select Player Buy Chip)
+                        local hostName = getgenv().SelectedBuyChipPlayer
+                        local hostPlr = hostName and Players:FindFirstChild(hostName) or nil
+                        local hostHRP = hostPlr and hostPlr.Character and hostPlr.Character:FindFirstChild("HumanoidRootPart")
 
-                        -- ── KILL AURA (chỉ đảo 4 & 5, chỉ khi bật): kill mob trong 2000 stud ──
-                        -- Farm bình thường vẫn chạy bên dưới song song để không miss mob
-                        local onHighIsland = IsIslandRaid(4) or IsIslandRaid(5)
-                        if onHighIsland and getgenv().RaidKillAura then
-                            for _, enemy in pairs(workspace.Enemies:GetChildren()) do
-                                if enemy:FindFirstChild("Humanoid")
-                                and enemy:FindFirstChild("HumanoidRootPart")
-                                and enemy.Humanoid.Health > 0
-                                and not IsRaidMob(enemy) then
-                                    local dist = (enemy.HumanoidRootPart.Position - root.Position).Magnitude
-                                    if dist <= 2000 then
-                                        pcall(function()
-                                            sethiddenproperty(player, "SimulationRadius", math.huge)
-                                            enemy.Humanoid.Health = 0
-                                            enemy:BreakJoints()
-                                            enemy.HumanoidRootPart.CanCollide = false
-                                        end)
+                        local hostAtWait = false
+                        if hostHRP then
+                            -- Host coi là "ở vị trí chờ" nếu gần buy pos HOẶC gần 1 trong 3 wait pos
+                            if (hostHRP.Position - RAID_BUY_POS).Magnitude <= 25 then
+                                hostAtWait = true
+                            else
+                                for _, pos in ipairs(RAID_WAIT_POS) do
+                                    if (hostHRP.Position - pos).Magnitude <= 25 then
+                                        hostAtWait = true
+                                        break
                                     end
                                 end
                             end
                         end
 
-                        -- ── FARM THƯỜNG (mọi đảo, mọi lúc): tween đến mob gần nhất + attack ──
-                        -- Đảm bảo farm tiếp tục kể cả khi kill aura hụt
-                        local nearest, nearestDist = nil, math.huge
-                        for _, mob in pairs(workspace.Enemies:GetChildren()) do
-                            if mob:FindFirstChild("Humanoid")
-                            and mob:FindFirstChild("HumanoidRootPart")
-                            and mob.Humanoid.Health > 0
-                            and not IsRaidMob(mob) then
-                                local dist = (mob.HumanoidRootPart.Position - root.Position).Magnitude
-                                if dist <= 2000 and dist < nearestDist then
-                                    nearestDist = dist
-                                    nearest = mob
-                                end
-                            end
-                        end
-
-                        getgenv().CurrentTargetMob = nearest
-
-                        if nearest then
-                            local targetCF = GetFarmCFrame(nearest)
-                            if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
-                            AttackEnemy(nearest)
+                        if hostHRP and not hostAtWait then
+                            -- Host chưa tới chỗ chờ → tween bám theo host
+                            local followCF = CFrame.new(hostHRP.Position + Vector3.new(0, 3, 0))
+                            TweenToPos(followCF, getgenv().FlySpeed or 300)
                         else
-                            -- Không có mob trong 2000 stud → di chuyển đến đảo tiếp theo
-                            local nextIsland = getNextRaidIsland()
-                            if nextIsland then
-                                TweenObject(root, nextIsland.CFrame * CFrame.new(0, 50, 0), getgenv().FlySpeed)
+                            -- Host đã ở vị trí chờ (hoặc không tìm thấy host) → đứng pos trống
+                            local emptyPos = FindEmptyWaitPos()
+                            if (root.Position - emptyPos).Magnitude > RAID_WAIT_RADIUS then
+                                TweenToPos(CFrame.new(emptyPos + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
                             end
                         end
-                    end)
+                        task.wait(0.35)
+                        return
+                    end
 
-                    -- Chờ raid kết thúc
-                    repeat task.wait(1) until not IsInRaid() or not getgenv().RaidOnly
-                    if raidOnlyConn then raidOnlyConn:Disconnect(); raidOnlyConn = nil end
-                    getgenv().CurrentTargetMob = nil
+                    -- HOST / SOLO: tween tới buy pos
+                    do
+                        local root = getRoot()
+                        if root and (root.Position - RAID_BUY_POS).Magnitude > 15 then
+                            TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
+                            local deadline = tick() + 25
+                            repeat
+                                task.wait(0.25)
+                                root = getRoot()
+                            until not getgenv().AutoRaid
+                                or not root
+                                or (root.Position - RAID_BUY_POS).Magnitude <= 20
+                                or tick() > deadline
+                        end
+                    end
 
-                end) -- end pcall
+                    if not getgenv().AutoRaid or IsInRaid() then return end
+
+                    -- Host + có multi: đợi multi tới 3 pos
+                    if isHost and HasAnyMultiSelected() then
+                        local waitDeadline = tick() + 60
+                        while getgenv().AutoRaid and not IsInRaid() and tick() < waitDeadline do
+                            if AreSelectedMultiPlayersReady() then break end
+                            local root = getRoot()
+                            if root and (root.Position - RAID_BUY_POS).Magnitude > 25 then
+                                TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
+                            end
+                            task.wait(0.4)
+                        end
+                    end
+
+                    if not getgenv().AutoRaid or IsInRaid() then return end
+
+                    if not GetBP("Special Microchip") then
+                        BuySelectedChip()
+                        task.wait(0.5)
+                    end
+
+                    if not getgenv().AutoRaid or IsInRaid() then return end
+
+                    StartRaidEntrance()
+
+                    local deadline = tick() + 30
+                    repeat task.wait(0.5) until IsInRaid() or tick() > deadline or not getgenv().AutoRaid
+
+                    if IsInRaid() and getgenv().AutoRaid then
+                        task.wait(1)
+                        startRaidFarmLoop(function() return getgenv().AutoRaid end, isMulti)
+                        repeat task.wait(1) until not IsInRaid() or not getgenv().AutoRaid
+                        stopRaidFarmLoop()
+                    end
+                end)
                 task.wait(1)
-            end -- end while
-        end) -- end task.spawn
+            end
+        end)
     end
 })
 
-Tabs.FruitRaid:CreateToggle("RaidKillAura", {
-    Title = "Use Kill Aura on Raid",
-    Description = "Bật: đảo 4+5 dùng Kill Aura (2000 stud) + farm bình thường song song. Tắt: farm bình thường tất cả các đảo.",
-    Default = true,
-    Callback = function(v)
-        getgenv().RaidKillAura = v
-    end
-})
+end
+SetupRaidSection()
 
 --------------------------------------------------------------------
 -- TAB TRAVEL
 --------------------------------------------------------------------
 
 -- ===== DỮ LIỆU ĐẢO THEO WORLD =====
+local function SetupTravelAndShop()
 local IslandData = {
     world1 = {
         { name = "Marine Start",          pos = Vector3.new(-2573.34, 15.89,  2047.00) },
@@ -6623,4 +6846,7 @@ if FightingStyleData.SanguineArt[currentWorldKey] then
 end
 
 -- Khôi phục settings sau khi toàn bộ UI đã sẵn sàng
+end
+SetupTravelAndShop()
+
 AutoLoad()
