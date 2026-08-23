@@ -985,9 +985,15 @@ end
 --------------------------------------------------------------------
 getgenv().BringMob = true           -- Bật tính năng kéo mob lại gần (giúp farm nhanh hơn)
 getgenv().FlySpeed = 280            -- Tốc độ bay (càng cao bay càng nhanh, nhưng dễ bị phát hiện)
-getgenv().FlyHeight = 30            -- Độ cao bay so với mob (tránh bị đánh)
+getgenv().FlyHeight = 30            -- (legacy) không dùng nữa — thay bằng FarmDistance/FarmPos
 getgenv().BringRange = 300          -- Phạm vi kéo mob (khoảng cách tối đa để bring mob)
+getgenv().BringDistance = 250       -- Alias bring (redz)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
+-- Farm Mode (redz-style): "Up" | "Orbit" | "Star"
+getgenv().FarmMode = "Up"
+getgenv().FarmDistance = 15
+getgenv().FarmPos = Vector3.new(0, 15, 0)
+getgenv().SmoothMode = false
 getgenv().Noclip = false            -- Xuyên tường (tắt va chạm với địa hình)
 getgenv().TelePorto = false         -- Bật/tắt tele trung gian khi tween xa
 getgenv().TeleTiki = true              -- Cho phép dùng Tiki làm đảo trung gian (W3)
@@ -1374,7 +1380,32 @@ local Weapon_Config = Tabs.Settings:CreateDropdown("Weapon_Config", {
 _G.ChooseWP = "Melee"
 _G.SelectWeapon = nil
 
--- ===== REMOVE CARD-RELATED GLOBALS (AutoPickCard features removed) =====
+--------------------------------------------------------------------
+-- FARM MODE (redz-style): Up / Orbit / Star
+--------------------------------------------------------------------
+Tabs.Settings:CreateDropdown("FarmMode", {
+    Title = "Farm Mode",
+    Description = "Up = trên đầu mob | Orbit = bay vòng | Star = nhảy trục X/Z",
+    Values = { "Up", "Orbit", "Star" },
+    Multi = false,
+    Default = 1,
+    Callback = GuardDropdown(function(v)
+        getgenv().FarmMode = v
+    end),
+})
+
+Tabs.Settings:CreateSlider("FarmDistance", {
+    Title = "Farm Distance",
+    Description = "Up: độ cao Y | Orbit: bán kính vòng | Star: lệch ngang",
+    Default = 15,
+    Min = 5,
+    Max = 30,
+    Rounding = 1,
+    Callback = function(v)
+        getgenv().FarmDistance = v
+        getgenv().FarmPos = Vector3.new(0, v, 0)
+    end,
+})
 
 Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
@@ -1387,6 +1418,17 @@ Tabs.Settings:CreateSlider("SpeedTween", {
         getgenv().FlySpeed = v
     end,
 })
+
+Tabs.Settings:CreateToggle("SmoothFarmMode", {
+    Title = "Smooth Farm Mode",
+    Description = "Giảm tốc độ tính toán để cải thiện FPS (redz SmoothMode)",
+    Default = false,
+    Callback = function(v)
+        getgenv().SmoothMode = v
+    end,
+})
+
+-- ===== REMOVE CARD-RELATED GLOBALS (AutoPickCard features removed) =====
 
 
 
@@ -2163,41 +2205,68 @@ end
 local function FlyMove(_, cf, speed) _tp(cf, speed) end
 local function TweenObject(_, cf, speed) _tp(cf, speed) end
 
-local function CalculateHeight(mobPosition)
-    if _G.ChooseWP == "Blox Fruit" then
-        return mobPosition.Y + 10  -- Fruit: Y+10
+--------------------------------------------------------------------
+-- FARM MODE (redz-style): Up / Orbit / Star
+-- Thay thế logic height cũ (CalculateHeight / Y cố định theo weapon)
+--------------------------------------------------------------------
+local _orbitAngle = 0
+local _orbitLastTick = tick()
+local _starAxis = Vector3.new(0, 8, 15)
+local _starDebounce = 0
+
+local function GetNextAxis()
+    if tick() - _starDebounce <= 0.4 then
+        return _starAxis
     end
-    if _G.ChooseWP == "Melee" or _G.ChooseWP == "Sword" then
-        return mobPosition.Y + 40  -- Melee/Sword: Y+40
-    end
-    return mobPosition.Y + 30  -- Gun/mặc định: Y+30
+    local dist = getgenv().FarmDistance or 15
+    local axisName = math.random() <= 0.5 and "xAxis" or "zAxis"
+    local sign = math.random() <= 0.5 and 1 or -1
+    local axis = Vector3[axisName] * (sign * dist) + Vector3.yAxis * 8
+    _starAxis = axis
+    _starDebounce = tick()
+    return axis
 end
 
---------------------------------------------------------------------
--- HÀM TÍNH CFRAME FARM
--- Up: Y+40 (Melee/Sword) / Y+30 (Gun) / Y+10 (Blox Fruit), đứng thẳng trên mob
---------------------------------------------------------------------
+-- Trả về CFrame đứng farm quanh mob theo mode hiện tại
 local function GetFarmCFrame(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return nil end
-    local mobHRP  = mob.HumanoidRootPart
-    local mobPos  = mobHRP.Position
-    local mobCF   = mobHRP.CFrame
+    local mobHRP = mob.HumanoidRootPart
+    local mobPos = mobHRP.Position
+    local mobCF  = mobHRP.CFrame
 
     local lookRaw  = Vector3.new(mobCF.LookVector.X, 0, mobCF.LookVector.Z)
     local lookFlat = lookRaw.Magnitude > 0.01 and lookRaw.Unit or Vector3.new(0, 0, 1)
 
-    local targetPos
+    local mode = getgenv().FarmMode or "Up"
+    local dist = getgenv().FarmDistance or 15
 
-    -- Đứng thẳng trên mob (không lệch X/Z)
-    if _G.ChooseWP == "Blox Fruit" then
-        targetPos = Vector3.new(mobPos.X, mobPos.Y + 10, mobPos.Z)
-    elseif _G.ChooseWP == "Melee" or _G.ChooseWP == "Sword" then
-        targetPos = Vector3.new(mobPos.X, mobPos.Y + 40, mobPos.Z)
+    if mode == "Orbit" then
+        -- Bay vòng tròn quanh mob, cao Y = 8, bán kính = FarmDistance
+        local now = tick()
+        local dt = now - _orbitLastTick
+        _orbitLastTick = now
+        if dt > 0.5 then dt = 0.05 end -- tránh nhảy góc khi pause lâu
+        local speed = 3.5
+        if getgenv().SmoothMode then
+            -- SmoothMode: cập nhật chậm hơn (giống redz task.wait 0.1)
+            _orbitAngle = _orbitAngle + speed * math.min(dt, 0.1)
+        else
+            _orbitAngle = _orbitAngle + speed * dt
+        end
+        local offset = Vector3.new(math.cos(_orbitAngle) * dist, 8, math.sin(_orbitAngle) * dist)
+        local targetPos = mobPos + offset
+        return CFrame.new(targetPos, mobPos) -- nhìn về mob
+    elseif mode == "Star" then
+        -- Nhảy trục ±X / ±Z ngẫu nhiên quanh mob (đổi mỗi 0.4s)
+        local targetCF = mobCF + GetNextAxis()
+        local targetPos = targetCF.Position
+        return CFrame.new(targetPos, mobPos)
     else
-        targetPos = Vector3.new(mobPos.X, mobPos.Y + 30, mobPos.Z)
+        -- Up (mặc định): đứng trên mob theo FarmPos (0, FarmDistance, 0)
+        local farmPos = getgenv().FarmPos or Vector3.new(0, dist, 0)
+        local targetPos = (mobCF + farmPos).Position
+        return CFrame.new(targetPos, targetPos + lookFlat)
     end
-
-    return CFrame.new(targetPos, targetPos + lookFlat)
 end
 
 local function GetNearestEnemy(enemyNames)
