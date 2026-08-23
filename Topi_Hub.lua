@@ -487,215 +487,7 @@ local INTERMEDIATE_COOLDOWN = 3  -- Giây giữa các lần tele trung gian
 local _intermediateRunning  = false  -- Guard: ngăn _tp tween trong lúc đang spam TP
 
 --------------------------------------------------------------------
--- RESET TELEPORT [BETA]
--- Lấy spawn gần đích, SetLastSpawnPoint rồi reset character.
--- Đây là tầng ưu tiên cao nhất: Reset -> Tiki -> Portal.
---------------------------------------------------------------------
-local ResetTP = getgenv().ResetTeleport or {}
-getgenv().ResetTeleport = ResetTP
 
-local ResetTP_ComF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
-local ResetTP_WorldOrigin = Workspace:WaitForChild("_WorldOrigin", 10)
-local ResetTP_BypassTpLocation = {}
-local ResetTP_PlayerSpawns = {}
-local ResetTP_Connections = {}
-
-local function ResetTP_IsAlive()
-    local char = player.Character
-    if not char then return false end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    return hum and hum.Health > 0
-end
-
-local function ResetTP_GetHRP()
-    local char = player.Character
-    if not char then return nil end
-    return char:FindFirstChild("HumanoidRootPart")
-        or char:FindFirstChild("UpperTorso")
-        or char:FindFirstChild("Torso")
-end
-
-local function ResetTP_Distance(a, b)
-    if typeof(a) == "CFrame" then a = a.Position end
-    if typeof(b) == "CFrame" then b = b.Position end
-    if typeof(a) ~= "Vector3" then return math.huge end
-    if typeof(b) ~= "Vector3" then
-        local hrp = ResetTP_GetHRP()
-        if not hrp then return math.huge end
-        b = hrp.Position
-    end
-    return (a - b).Magnitude
-end
-
-local function ResetTP_ClearConnections()
-    for _, c in ipairs(ResetTP_Connections) do
-        pcall(function() c:Disconnect() end)
-    end
-    table.clear(ResetTP_Connections)
-end
-
-local function ResetTP_LoadBypassTPLocation()
-    ResetTP_ClearConnections()
-    table.clear(ResetTP_PlayerSpawns)
-    table.clear(ResetTP_BypassTpLocation)
-
-    local worldOrigin = ResetTP_WorldOrigin or Workspace:FindFirstChild("_WorldOrigin")
-    local playerSpawns = worldOrigin and worldOrigin:FindFirstChild("PlayerSpawns")
-    local locations = worldOrigin and worldOrigin:FindFirstChild("Locations")
-    if not playerSpawns or not locations then return false end
-
-    local function addSpawn(model)
-        if not model or not model:IsA("Model") then return end
-        local ok, cf = pcall(function() return model:GetModelCFrame() end)
-        if not ok or not cf then return end
-        table.insert(ResetTP_PlayerSpawns, {model.Name, cf})
-    end
-
-    for _, folder in ipairs(playerSpawns:GetChildren()) do
-        for _, model in ipairs(folder:GetChildren()) do
-            addSpawn(model)
-        end
-        table.insert(ResetTP_Connections, folder.ChildAdded:Connect(function(child)
-            task.wait()
-            addSpawn(child)
-        end))
-    end
-
-    local function mapLocation(loc)
-        if not loc:IsA("BasePart") then return end
-        local list = {}
-        ResetTP_BypassTpLocation[loc.Name] = list
-        local mesh = loc:FindFirstChildWhichIsA("SpecialMesh")
-        local scaleX = (mesh and mesh.Scale.X) or 1
-        local radius = (loc.Size.X * scaleX) / 2
-        for _, entry in ipairs(ResetTP_PlayerSpawns) do
-            if (entry[2].Position - loc.Position).Magnitude <= radius then
-                table.insert(list, entry)
-            end
-        end
-    end
-
-    for _, loc in ipairs(locations:GetChildren()) do
-        mapLocation(loc)
-    end
-    table.insert(ResetTP_Connections, locations.ChildAdded:Connect(function(child)
-        task.wait()
-        mapLocation(child)
-    end))
-    return #ResetTP_PlayerSpawns > 0
-end
-
-local function ResetTP_GetTPLocation(pos)
-    if typeof(pos) == "CFrame" then pos = pos.Position end
-    local locations = ResetTP_WorldOrigin and ResetTP_WorldOrigin:FindFirstChild("Locations")
-    if not locations then return nil end
-
-    local bestName, bestDist = nil, math.huge
-    for _, loc in ipairs(locations:GetChildren()) do
-        local list = ResetTP_BypassTpLocation[loc.Name]
-        if list and loc:IsA("BasePart") then
-            local mesh = loc:FindFirstChildWhichIsA("SpecialMesh")
-            local scaleX = (mesh and mesh.Scale.X) or 1
-            local radius = (loc.Size.X * scaleX) / 2
-            if ResetTP_Distance(pos, loc.Position) <= radius then
-                for _, entry in ipairs(list) do
-                    local d = ResetTP_Distance(pos, entry[2].Position)
-                    if d < bestDist then
-                        bestDist = d
-                        bestName = entry[1]
-                    end
-                end
-            end
-        end
-    end
-    return bestName
-end
-
-local function ResetTP_TweenBypass(target)
-    local targetPos = typeof(target) == "CFrame" and target.Position or target
-    if typeof(targetPos) ~= "Vector3" then return false end
-
-    if not next(ResetTP_BypassTpLocation) then
-        if not ResetTP_LoadBypassTPLocation() then return false end
-    end
-
-    local char = player.Character
-    if not char or not ResetTP_GetHRP() then return false end
-
-    local spawnList = {}
-    local seen = {}
-    for _, entries in pairs(ResetTP_BypassTpLocation) do
-        for _, entry in ipairs(entries) do
-            local cf = entry[2]
-            local key = string.format("%.3f|%.3f|%.3f", cf.Position.X, cf.Position.Y, cf.Position.Z)
-            if not seen[key] then
-                seen[key] = true
-                table.insert(spawnList, cf)
-            end
-        end
-    end
-    if #spawnList == 0 then return false end
-
-    table.sort(spawnList, function(a, b)
-        return ResetTP_Distance(a.Position, targetPos) < ResetTP_Distance(b.Position, targetPos)
-    end)
-
-    local lastSpawnScript = char:FindFirstChild("LastSpawnPoint")
-    if lastSpawnScript and lastSpawnScript:IsA("LocalScript") then
-        lastSpawnScript.Disabled = true
-    end
-
-    local setOk = false
-    for _, spawnCF in ipairs(spawnList) do
-        local spawnName = ResetTP_GetTPLocation(spawnCF.Position)
-        if spawnName then
-            local distSpawnToTarget = ResetTP_Distance(spawnCF.Position, targetPos)
-            local distPlayerToTarget = ResetTP_Distance(targetPos)
-            if (distSpawnToTarget + 500) < distPlayerToTarget
-                and ResetTP_Distance(spawnCF.Position) >= 1000 then
-                local ok = pcall(function()
-                    ResetTP_ComF:InvokeServer("SetLastSpawnPoint", spawnName)
-                end)
-                if ok then
-                    setOk = true
-                    break
-                end
-            end
-        end
-    end
-
-    if lastSpawnScript then
-        lastSpawnScript.Disabled = false
-    end
-    return setOk
-end
-
-local function ResetTP_ShouldUse(targetCF)
-    if not getgenv().ResetTeleportEnabled then return false end
-    if getgenv()._ResetTP_BlockFlag then return false end
-    if getgenv().ReadyToDodge then return false end
-    if not ResetTP_GetHRP() or not ResetTP_IsAlive() then return false end
-
-    local targetPos = typeof(targetCF) == "CFrame" and targetCF.Position or targetCF
-    if typeof(targetPos) ~= "Vector3" then return false end
-    return ResetTP_Distance(targetPos) >= 1000
-end
-
-local function ResetTP_Try(targetCF)
-    if not ResetTP_ShouldUse(targetCF) then return false end
-    return ResetTP_TweenBypass(targetCF)
-end
-
-ResetTP.LoadBypassTPLocation = ResetTP_LoadBypassTPLocation
-ResetTP.GetTPLocation = ResetTP_GetTPLocation
-ResetTP.TweenBypass = ResetTP_TweenBypass
-ResetTP.ShouldResetTeleportSmart = ResetTP_ShouldUse
-ResetTP.TryResetTeleport = ResetTP_Try
-ResetTP.BypassTpLocation = ResetTP_BypassTpLocation
-ResetTP.GetDistance = ResetTP_Distance
-ResetTP.getHRP = ResetTP_GetHRP
-
-getgenv().ReadyToDodge = getgenv().ReadyToDodge or false
 getgenv()._ResetTP_BlockFlag = getgenv()._ResetTP_BlockFlag or false
 
 task.spawn(function()
@@ -728,42 +520,7 @@ local function doIntermediateTeleport(targetCF, speed)
     -- Đang có một tầng tele trung gian chạy thì giữ nguyên tầng đó.
     if _intermediateRunning then return true end
 
-    -- Ưu tiên: Reset -> Tiki -> Portal.
-    -- Reset không phụ thuộc TelePorto; chỉ cần Reset Teleport được bật
-    -- và reset thực sự có lợi cho quãng đường hiện tại.
-    if ResetTP_Try(targetCF) then
-        _intermediateRunning = true
-
-        task.spawn(function()
-            if currentTween then
-                pcall(function() currentTween:Cancel() end)
-                currentTween = nil
-            end
-            currentTweenSpeed = 0
-            currentTweenTarget = nil
-
-            local oldCharacter = player.Character
-            local oldHumanoid = oldCharacter and oldCharacter:FindFirstChildOfClass("Humanoid")
-            if oldHumanoid and oldHumanoid.Health > 0 then
-                pcall(function() oldHumanoid.Health = 0 end)
-            end
-
-            local newCharacter = player.CharacterAdded:Wait()
-            local newRoot = newCharacter:WaitForChild("HumanoidRootPart", 12)
-            if newRoot then
-                task.wait(0.35)
-            end
-
-            _intermediateRunning = false
-            if getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob
-                or getgenv().TravelToIsland or getgenv().TPNpc or getgenv().AutoZou or getgenv().TravelDres then
-                _tp(targetCF, speed)
-            end
-        end)
-        return true
-    end
-
-    -- Không Reset được → mới xét Portal/Tiki.
+    -- Không Reset → xét Portal/Tiki.
     if not getgenv().TelePorto then return false end
 
     -- Guard: đang chạy rồi → bỏ qua (caller không gọi _tp lúc này)
@@ -1084,13 +841,11 @@ local Tabs = {
 -- Lý do: Fluent-Renewed SetValue() chỉ cập nhật visual, KHÔNG fire Callback.
 -- [FIX] Trước đây chỉ Toggle được lưu vào registry này (_ToggleCBs), nên khi
 -- LoadConfig gọi opt:SetValue() cho Dropdown/Slider, các biến global đứng
--- sau Callback (getgenv().FarmMode, SelectedFarm, FlySpeed, ChooseWP, v.v.)
+-- sau Callback (SelectedFarm, FlySpeed, ChooseWP, v.v.)
 -- KHÔNG BAO GIỜ được set lại — dropdown/slider chỉ đổi hình ảnh trên UI chứ
 -- không áp dụng giá trị đã lưu. Đây chính là nguyên nhân:
---   1) AutoFarm bật lại sau khi load nhưng đứng im (SelectedFarm/FarmMode
---      vẫn là giá trị mặc định vì FarmType/FarmMode dropdown chưa từng fire).
---   2) Dropdown farm mode hiển thị đúng lựa chọn đã lưu (Orbit/Star) nhưng
---      script vẫn farm theo Up (mặc định) cho đến khi người dùng chọn lại.
+--   1) AutoFarm bật lại sau khi load nhưng đứng im (SelectedFarm
+--      vẫn là giá trị mặc định vì FarmType dropdown chưa từng fire).
 -- Giữ tên biến _ToggleCBs làm alias để không phải sửa các chỗ khác đã dùng.
 --------------------------------------------------------------------
 local _OptionCBs = {}
@@ -1269,7 +1024,6 @@ getgenv().BringRange = 300          -- Phạm vi kéo mob (khoảng cách tối 
 getgenv().BringDistance = 250       -- Alias bring (redz)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 -- Farm Mode (redz-style): "Up" | "Orbit" | "Star"
-getgenv().FarmMode = "Up"
 getgenv().FarmDistance = 15
 getgenv().FarmPos = Vector3.new(0, 15, 0)
 getgenv().SmoothMode = false
@@ -1669,21 +1423,6 @@ _G.SelectWeapon = nil
 
 -- ===== REMOVE CARD-RELATED GLOBALS (AutoPickCard features removed) =====
 
---------------------------------------------------------------------
--- FARM MODE (redz-style): Up / Orbit / Star
---------------------------------------------------------------------
-Tabs.Settings:CreateDropdown("FarmMode", {
-    Title = "Farm Mode",
-    Description = "Up = trên đầu mob | Orbit = bay vòng | Star = nhảy trục X/Z",
-    Values = { "Up", "Orbit", "Star" },
-    Multi = false,
-    Default = 1,
-    Callback = GuardDropdown(function(v)
-        getgenv().FarmMode = v
-        getgenv()._OrbitTweenLastUpdate = 0
-    end),
-})
-
 Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
     Description = "Tốc độ bay / tween (0 - 300)",
@@ -2019,15 +1758,6 @@ Tabs.Settings:CreateToggle("BringMob", {
     Callback = function(v)
         getgenv().BringMob = v
     end
-})
-
-Tabs.Settings:CreateToggle("SmoothFarmMode", {
-    Title = "Smooth Farm Mode",
-    Description = "Giảm tốc độ tính toán để cải thiện FPS (redz SmoothMode)",
-    Default = false,
-    Callback = function(v)
-        getgenv().SmoothMode = v
-    end,
 })
 
 Tabs.Settings:CreateToggle("BuddhaFarm", {
@@ -2475,45 +2205,6 @@ local function _tp(targetCF, speed)
         effectiveSpeed = 500
     end
 
-    -- ── Orbit: tween theo từng đoạn ngắn, không recreate mỗi frame ──
-    -- Orbit đổi target liên tục; cancel/recreate tween mỗi vài frame làm
-    -- quỹ đạo bị giật. Giữ TweenService + Linear như tween cũ, nhưng chỉ
-    -- cập nhật target khoảng 0.08s/lần để chuyển động liền mạch.
-    if getgenv().FarmMode == "Orbit" then
-        local now = tick()
-        local orbitInterval = 0.08
-        local lastOrbitUpdate = getgenv()._OrbitTweenLastUpdate or 0
-
-        if currentTween
-            and currentTween.PlaybackState == Enum.PlaybackState.Playing
-            and (now - lastOrbitUpdate < orbitInterval)
-            and currentTweenSpeed == effectiveSpeed then
-            return
-        end
-
-        if currentTween then
-            pcall(function() currentTween:Cancel() end)
-            currentTween = nil
-        end
-
-        getgenv()._OrbitTweenLastUpdate = now
-        currentTweenSpeed  = effectiveSpeed
-        currentTweenTarget = targetCF.Position
-
-        currentTween = TweenService:Create(
-            hrp,
-            TweenInfo.new(orbitInterval, Enum.EasingStyle.Linear),
-            {CFrame = targetCF}
-        )
-        currentTween:Play()
-        currentTween.Completed:Once(function()
-            if currentTween then
-                currentTween = nil
-            end
-        end)
-        return
-    end
-
     -- ── Các mode khác: giữ nguyên cơ chế tween cũ ──
     -- Cancel + tạo tween mới nếu: chưa có tween, đổi speed,
     -- hoặc mob đã di chuyển > 3 studs so với đích cũ
@@ -2545,63 +2236,20 @@ local function TweenObject(_, cf, speed) _tp(cf, speed) end
 -- FARM MODE (redz-style): Up / Orbit / Star
 -- Thay thế logic height cũ (CalculateHeight / Y cố định theo weapon)
 --------------------------------------------------------------------
-local _orbitAngle = 0
-local _orbitLastTick = tick()
-local _starAxis = Vector3.new(0, 8, 15)
-local _starDebounce = 0
-
-local function GetNextAxis()
-    if tick() - _starDebounce <= 0.4 then
-        return _starAxis
-    end
-    local dist = getgenv().FarmDistance or 15
-    local axisName = math.random() <= 0.5 and "xAxis" or "zAxis"
-    local sign = math.random() <= 0.5 and 1 or -1
-    local axis = Vector3[axisName] * (sign * dist) + Vector3.yAxis * 8
-    _starAxis = axis
-    _starDebounce = tick()
-    return axis
-end
-
--- Trả về CFrame đứng farm quanh mob theo mode hiện tại
+-- FARM POSITION: Up (mặc định duy nhất)
+-- Luôn đứng phía trên mob theo FarmDistance.
 local function GetFarmCFrame(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return nil end
     local mobHRP = mob.HumanoidRootPart
-    local mobPos = mobHRP.Position
     local mobCF  = mobHRP.CFrame
+    local dist   = getgenv().FarmDistance or 15
 
     local lookRaw  = Vector3.new(mobCF.LookVector.X, 0, mobCF.LookVector.Z)
     local lookFlat = lookRaw.Magnitude > 0.01 and lookRaw.Unit or Vector3.new(0, 0, 1)
 
-    local mode = getgenv().FarmMode or "Up"
-    local dist = getgenv().FarmDistance or 15
-
-    if mode == "Orbit" then
-        -- Bay vòng tròn quanh mob, cao Y = 8, bán kính = FarmDistance
-        -- Chỉ set vị trí (giống redz) — không ép hướng mặt về mob
-        local now = tick()
-        local dt = now - _orbitLastTick
-        _orbitLastTick = now
-        if dt > 0.5 then dt = 0.05 end -- tránh nhảy góc khi pause lâu
-        local speed = 3.5
-        if getgenv().SmoothMode then
-            -- SmoothMode: cập nhật chậm hơn (giống redz task.wait 0.1)
-            _orbitAngle = _orbitAngle + speed * math.min(dt, 0.1)
-        else
-            _orbitAngle = _orbitAngle + speed * dt
-        end
-        local offset = Vector3.new(math.cos(_orbitAngle) * dist, 8, math.sin(_orbitAngle) * dist)
-        return CFrame.new(mobPos + offset)
-    elseif mode == "Star" then
-        -- Nhảy trục ±X / ±Z ngẫu nhiên quanh mob (đổi mỗi 0.4s)
-        -- Chỉ set vị trí (giống redz) — không ép hướng mặt về mob
-        return mobCF + GetNextAxis()
-    else
-        -- Up (mặc định): đứng trên mob theo FarmPos (0, FarmDistance, 0)
-        local farmPos = getgenv().FarmPos or Vector3.new(0, dist, 0)
-        local targetPos = (mobCF + farmPos).Position
-        return CFrame.new(targetPos, targetPos + lookFlat)
-    end
+    local farmPos = Vector3.new(0, dist, 0)
+    local targetPos = (mobCF + farmPos).Position
+    return CFrame.new(targetPos, targetPos + lookFlat)
 end
 
 local function GetNearestEnemy(enemyNames)
@@ -4988,12 +4636,12 @@ local function LoadConfig()
             local data = HttpService:JSONDecode(readfile(_SV_FILE))
 
             -- ── PASS 1: Load Dropdown / Slider / Colorpicker trước ──────────
-            -- Các biến global (SelectedFarm, FlySpeed, FarmMode, ChooseWP...)
+            -- Các biến global (SelectedFarm, FlySpeed, ChooseWP...)
             -- phải được set TRƯỚC khi toggle farm bật và gọi logic farm.
             -- [FIX] SetValue() chỉ cập nhật visual, KHÔNG fire Callback, nên
             -- phải gọi thủ công _OptionCBs[id](value) giống hệt cách Toggle
             -- đã làm ở Pass 2 bên dưới — nếu không thì Dropdown/Slider hiển
-            -- thị đúng giá trị đã lưu nhưng logic bên trong (getgenv().FarmMode,
+            -- thị đúng giá trị đã lưu nhưng logic bên trong (getgenv().Up,
             -- SelectedFarm, FlySpeed, ChooseWP...) vẫn ở giá trị mặc định.
             for id, value in pairs(data) do
                 local opt = Library.Options[id]
