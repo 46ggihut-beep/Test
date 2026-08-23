@@ -1680,6 +1680,7 @@ Tabs.Settings:CreateDropdown("FarmMode", {
     Default = 1,
     Callback = GuardDropdown(function(v)
         getgenv().FarmMode = v
+        getgenv()._OrbitTweenLastUpdate = 0
     end),
 })
 
@@ -2474,7 +2475,46 @@ local function _tp(targetCF, speed)
         effectiveSpeed = 500
     end
 
-    -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
+    -- ── Orbit: tween theo từng đoạn ngắn, không recreate mỗi frame ──
+    -- Orbit đổi target liên tục; cancel/recreate tween mỗi vài frame làm
+    -- quỹ đạo bị giật. Giữ TweenService + Linear như tween cũ, nhưng chỉ
+    -- cập nhật target khoảng 0.08s/lần để chuyển động liền mạch.
+    if getgenv().FarmMode == "Orbit" then
+        local now = tick()
+        local orbitInterval = 0.08
+        local lastOrbitUpdate = getgenv()._OrbitTweenLastUpdate or 0
+
+        if currentTween
+            and currentTween.PlaybackState == Enum.PlaybackState.Playing
+            and (now - lastOrbitUpdate < orbitInterval)
+            and currentTweenSpeed == effectiveSpeed then
+            return
+        end
+
+        if currentTween then
+            pcall(function() currentTween:Cancel() end)
+            currentTween = nil
+        end
+
+        getgenv()._OrbitTweenLastUpdate = now
+        currentTweenSpeed  = effectiveSpeed
+        currentTweenTarget = targetCF.Position
+
+        currentTween = TweenService:Create(
+            hrp,
+            TweenInfo.new(orbitInterval, Enum.EasingStyle.Linear),
+            {CFrame = targetCF}
+        )
+        currentTween:Play()
+        currentTween.Completed:Once(function()
+            if currentTween then
+                currentTween = nil
+            end
+        end)
+        return
+    end
+
+    -- ── Các mode khác: giữ nguyên cơ chế tween cũ ──
     -- Cancel + tạo tween mới nếu: chưa có tween, đổi speed,
     -- hoặc mob đã di chuyển > 3 studs so với đích cũ
     local needUpdate = (not currentTween)
