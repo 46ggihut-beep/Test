@@ -8,13 +8,13 @@
 local DefaultConfig = {
     Settings = {
         Team           = "Marines",       -- "Marines" | "Pirates"
-        SpeedTween     = 300,             -- 1-350
-        BoatSpeed      = 350,             -- 1-500
+        SpeedTween     = 280,             -- 1-350
+        BoatSpeed      = 280,             -- 1-500
         WeaponConfig   = "Melee",         -- "Melee" | "Sword" | "Blox Fruit" | "Gun"
         AutoFarm       = true,            -- true = tự sail + farm liên tục
         SelectBoatFarm = "Guardian",      -- tên thuyền sẽ mua
-        SelectSeaLevel = "6",             -- "1".."6" hoặc "Infinite"
-        AutoM1Fruit    = true,            -- true = dùng Blox Fruit khi farm SeaBeast/Boat
+        SelectSeaLevel = "Infinite",             -- "1".."6" hoặc "Infinite"
+        AutoM1Fruit    = false,            -- true = dùng Blox Fruit khi farm SeaBeast/Boat
     },
     SeaEntityConfig = {
         Shark                    = true,
@@ -75,15 +75,21 @@ pcall(function()
     end
 end)
 
---// ================= [1] FAST ATTACK (FastMax) - LUÔN BẬT =================
-loadstring(game:HttpGet("https://raw.githubusercontent.com/AnhDzaiScript/Setting/refs/heads/main/FastMax.lua"))()
+--// ================= [1] FAST ATTACK (Custom) - LUÔN BẬT =================
+local FA_Modules = ReplicatedStorage:WaitForChild("Modules")
+local FA_Net     = FA_Modules:WaitForChild("Net")
+
+-- Nếu sau này tìm được remote ẩn (qua getgc/hookfunction) thì gán vào 2 biến này,
+-- để nil thì nhánh mã hoá bên dưới tự bỏ qua, không lỗi.
+local AttackRemoteTarget = nil
+local AttackRemoteId     = nil
 
 local function GetBladeHits_v1()
     local targets = {}
     local function GetDistance(v)
-        return (v.Position - game.Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+        return (v.Position - player.Character.HumanoidRootPart.Position).Magnitude
     end
-    for _, part in pairs({game.Workspace.Enemies, game.Workspace.Characters}) do
+    for _, part in pairs({Workspace.Enemies, Workspace.Characters}) do
         for _, v in pairs(part:GetChildren()) do
             if v:FindFirstChild("HumanoidRootPart") and v:FindFirstChild("Head") and v:FindFirstChild("Humanoid") then
                 if GetDistance(v.HumanoidRootPart) < 60 then
@@ -100,294 +106,52 @@ local function AttackAll_v1()
     if not character then return end
     local equippedWeapon = character:FindFirstChild("EquippedWeapon")
     if not equippedWeapon then return end
+
     local enemies = GetBladeHits_v1()
-    if #enemies > 0 then
-        local netModule = game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Net")
-        netModule:WaitForChild("RE/RegisterAttack"):FireServer(-math.huge)
-        local args = {nil, {}}
-        for i, v in pairs(enemies) do
-            if not args[1] then args[1] = v.Head end
-            args[2][i] = {v, v.HumanoidRootPart}
+    if #enemies == 0 then return end
+
+    local hitTargets = {}
+    for i, v in pairs(enemies) do
+        hitTargets[i] = {v, v.HumanoidRootPart}
+    end
+
+    local seed = FA_Modules.Net.seed:InvokeServer()
+
+    local attackRemote = FA_Net:FindFirstChild("RE/RegisterAttack")
+    local hitRemote     = FA_Net:FindFirstChild("RE/RegisterHit")
+
+    if attackRemote and hitRemote then
+        attackRemote:FireServer()
+
+        local targetHead = hitTargets[1][1]:FindFirstChild("Head")
+        if not targetHead then return end
+        hitRemote:FireServer(targetHead, hitTargets, {})
+
+        if AttackRemoteTarget then
+            local remoteCode    = "RE/RegisterHit"
+            local encryptionKey = math.floor(Workspace:GetServerTimeNow() / 10 % 10) + 1
+
+            local encodedString = string.gsub(remoteCode, ".", function(char)
+                return string.char(bit32.bxor(string.byte(char), encryptionKey))
+            end)
+            local finalId = bit32.bxor(AttackRemoteId + 909090, seed * 2)
+
+            cloneref(AttackRemoteTarget):FireServer(
+                encodedString,
+                finalId,
+                targetHead,
+                hitTargets
+            )
         end
-        netModule:WaitForChild("RE/RegisterHit"):FireServer(unpack(args))
     end
 end
 
 spawn(function()
     while task.wait() do
         if getgenv().FastAttackEnabled then
-            AttackAll_v1()
+            pcall(AttackAll_v1)
         end
     end
-end)
-
--- FastAttack OOP class
-local _FA_Modules        = ReplicatedStorage:WaitForChild("Modules")
-local _FA_Net            = _FA_Modules:WaitForChild("Net")
-local _FA_RegisterAttack = _FA_Net:WaitForChild("RE/RegisterAttack")
-local _FA_RegisterHit    = _FA_Net:WaitForChild("RE/RegisterHit")
-local _FA_ShootGunEvent  = _FA_Net:WaitForChild("RE/ShootGunEvent")
-local _FA_GunValidator   = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Validator2")
-
-local _FA_Config = {
-    AttackDistance   = 65,
-    AttackMobs       = true,
-    AttackPlayers    = true,
-    AttackCooldown   = 0.2,
-    ComboResetTime   = 0.3,
-    MaxCombo         = 4,
-    HitboxLimbs      = {"RightLowerArm","RightUpperArm","LeftLowerArm","LeftUpperArm","RightHand","LeftHand"},
-    AutoClickEnabled = true
-}
-
-local FastAttack = {}
-FastAttack.__index = FastAttack
-
-function FastAttack.new()
-    local self = setmetatable({
-        Debounce      = 0,
-        ComboDebounce = 0,
-        ShootDebounce = 0,
-        M1Combo       = 0,
-        EnemyRootPart = nil,
-        Connections   = {},
-        Overheat      = {Dragonstorm = {MaxOverheat=3, Cooldown=0, TotalOverheat=0, Distance=350, Shooting=false}},
-        ShootsPerTarget  = {["Dual Flintlock"] = 2},
-        SpecialShoots    = {["Skull Guitar"]="TAP", ["Bazooka"]="Position", ["Cannon"]="Position", ["Dragonstorm"]="Overheat"}
-    }, FastAttack)
-    pcall(function()
-        self.CombatFlags  = require(_FA_Modules.Flags).COMBAT_REMOTE_THREAD
-        self.ShootFunction = getupvalue(require(ReplicatedStorage.Controllers.CombatController).Attack, 9)
-        local LocalScript = player:WaitForChild("PlayerScripts"):FindFirstChildOfClass("LocalScript")
-        if LocalScript and getsenv then
-            self.HitFunction = getsenv(LocalScript)._G.SendHitsToServer
-        end
-    end)
-    return self
-end
-
-function FastAttack:IsEntityAlive(entity)
-    local h = entity and entity:FindFirstChild("Humanoid")
-    return h and h.Health > 0
-end
-
-function FastAttack:CheckStun(Character, Humanoid, ToolTip)
-    local Stun = Character:FindFirstChild("Stun")
-    local Busy = Character:FindFirstChild("Busy")
-    if Humanoid.Sit and (ToolTip == "Sword" or ToolTip == "Melee" or ToolTip == "Blox Fruit") then
-        return false
-    elseif Stun and Stun.Value > 0 or Busy and Busy.Value then
-        return false
-    end
-    return true
-end
-
-function FastAttack:GetBladeHits(Character, Distance)
-    local Position  = Character:GetPivot().Position
-    local BladeHits = {}
-    Distance = Distance or _FA_Config.AttackDistance
-    local function ProcessTargets(Folder)
-        for _, Enemy in ipairs(Folder:GetChildren()) do
-            if Enemy ~= Character and self:IsEntityAlive(Enemy) then
-                local BasePart = Enemy:FindFirstChild(_FA_Config.HitboxLimbs[math.random(#_FA_Config.HitboxLimbs)])
-                              or Enemy:FindFirstChild("HumanoidRootPart")
-                if BasePart and (Position - BasePart.Position).Magnitude <= Distance then
-                    if not self.EnemyRootPart then
-                        self.EnemyRootPart = BasePart
-                    else
-                        table.insert(BladeHits, {Enemy, BasePart})
-                    end
-                end
-            end
-        end
-    end
-    if _FA_Config.AttackMobs    then ProcessTargets(Workspace.Enemies)    end
-    if _FA_Config.AttackPlayers then ProcessTargets(Workspace.Characters) end
-    return BladeHits
-end
-
-function FastAttack:GetClosestEnemy(Character, Distance)
-    local BladeHits = self:GetBladeHits(Character, Distance)
-    local Closest, MinDistance = nil, math.huge
-    for _, Hit in ipairs(BladeHits) do
-        local Magnitude = (Character:GetPivot().Position - Hit[2].Position).Magnitude
-        if Magnitude < MinDistance then
-            MinDistance = Magnitude
-            Closest     = Hit[2]
-        end
-    end
-    return Closest
-end
-
-function FastAttack:GetCombo()
-    local Combo = (tick() - self.ComboDebounce) <= _FA_Config.ComboResetTime and self.M1Combo or 0
-    Combo = Combo >= _FA_Config.MaxCombo and 1 or Combo + 1
-    self.ComboDebounce = tick()
-    self.M1Combo       = Combo
-    return Combo
-end
-
-function FastAttack:ShootInTarget(TargetPosition)
-    local Character = player.Character
-    if not self:IsEntityAlive(Character) then return end
-    local Equipped = Character:FindFirstChildOfClass("Tool")
-    if not Equipped or Equipped.ToolTip ~= "Gun" then return end
-    local Cooldown  = Equipped:FindFirstChild("Cooldown") and Equipped.Cooldown.Value or 0.3
-    if (tick() - self.ShootDebounce) < Cooldown then return end
-    local ShootType = self.SpecialShoots[Equipped.Name] or "Normal"
-    if ShootType == "Position" or (ShootType == "TAP" and Equipped:FindFirstChild("RemoteEvent")) then
-        Equipped:SetAttribute("LocalTotalShots", (Equipped:GetAttribute("LocalTotalShots") or 0) + 1)
-        _FA_GunValidator:FireServer(self:GetValidator2())
-        if ShootType == "TAP" then
-            Equipped.RemoteEvent:FireServer("TAP", TargetPosition)
-        else
-            _FA_ShootGunEvent:FireServer(TargetPosition)
-        end
-        self.ShootDebounce = tick()
-    else
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true,  game, 1)
-        task.wait(0.05)
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-        self.ShootDebounce = tick()
-    end
-end
-
-function FastAttack:GetValidator2()
-    local v1=getupvalue(self.ShootFunction,15)
-    local v2=getupvalue(self.ShootFunction,13)
-    local v3=getupvalue(self.ShootFunction,16)
-    local v4=getupvalue(self.ShootFunction,17)
-    local v5=getupvalue(self.ShootFunction,14)
-    local v6=getupvalue(self.ShootFunction,12)
-    local v7=getupvalue(self.ShootFunction,18)
-    local v8=v6*v2
-    local v9=(v5*v2+v6*v1)%v3
-    v9=(v9*v3+v8)%v4
-    v5=math.floor(v9/v3)
-    v6=v9-v5*v3
-    v7=v7+1
-    setupvalue(self.ShootFunction,15,v1)
-    setupvalue(self.ShootFunction,13,v2)
-    setupvalue(self.ShootFunction,16,v3)
-    setupvalue(self.ShootFunction,17,v4)
-    setupvalue(self.ShootFunction,14,v5)
-    setupvalue(self.ShootFunction,12,v6)
-    setupvalue(self.ShootFunction,18,v7)
-    return math.floor(v9/v4*16777215), v7
-end
-
-function FastAttack:UseNormalClick(Character, Humanoid, Cooldown)
-    self.EnemyRootPart = nil
-    local BladeHits = self:GetBladeHits(Character)
-    if self.EnemyRootPart then
-        _FA_RegisterAttack:FireServer(Cooldown)
-        if self.CombatFlags and self.HitFunction then
-            self.HitFunction(self.EnemyRootPart, BladeHits)
-        else
-            _FA_RegisterHit:FireServer(self.EnemyRootPart, BladeHits)
-        end
-    end
-end
-
-function FastAttack:UseFruitM1(Character, Equipped)
-    local MobAura, _ = get_Monster()
-    if not MobAura then return end
-    local LeftClickRemote = Equipped:FindFirstChild("LeftClickRemote")
-    if not LeftClickRemote then return end
-    Actived()
-    LeftClickRemote:FireServer(Vector3.new(0.01, -500, 0.01), 1, true)
-    LeftClickRemote:FireServer(false)
-end
-
-function FastAttack:Attack()
-    if not getgenv().FastAttackEnabled then return end
-    if not _FA_Config.AutoClickEnabled or (tick() - self.Debounce) < _FA_Config.AttackCooldown then return end
-    local Character = player.Character
-    if not Character or not self:IsEntityAlive(Character) then return end
-    local Humanoid  = Character.Humanoid
-    local Equipped  = Character:FindFirstChildOfClass("Tool")
-    if not Equipped then return end
-    local ToolTip   = Equipped.ToolTip
-    if not table.find({"Melee","Blox Fruit","Sword","Gun"}, ToolTip) then return end
-    local Cooldown  = Equipped:FindFirstChild("Cooldown") and Equipped.Cooldown.Value or _FA_Config.AttackCooldown
-    if not self:CheckStun(Character, Humanoid, ToolTip) then return end
-    local Combo = self:GetCombo()
-    Cooldown = Cooldown + (Combo >= _FA_Config.MaxCombo and 0.05 or 0)
-    self.Debounce = Combo >= _FA_Config.MaxCombo and ToolTip ~= "Gun" and (tick() + 0.05) or tick()
-    if ToolTip == "Blox Fruit" and Equipped:FindFirstChild("LeftClickRemote") then
-        self:UseFruitM1(Character, Equipped)
-    elseif ToolTip == "Gun" then
-        local Target = self:GetClosestEnemy(Character, 120)
-        if Target then self:ShootInTarget(Target.Position) end
-    else
-        self:UseNormalClick(Character, Humanoid, Cooldown)
-    end
-end
-
-local AttackInstance = FastAttack.new()
-table.insert(AttackInstance.Connections, RunService.Stepped:Connect(function()
-    AttackInstance:Attack()
-end))
-
-for _, v in pairs(getgc(true)) do
-    if typeof(v) == "function" and iscclosure(v) then
-        local name = debug.getinfo(v).name
-        if name == "Attack" or name == "attack" or name == "RegisterHit" then
-            hookfunction(v, function(...)
-                AttackInstance:Attack()
-                return v(...)
-            end)
-        end
-    end
-end
-
--- Fast Attack v2
-local _FA2_Net            = game.ReplicatedStorage.Modules.Net
-local _FA2_RegisterHit    = _FA2_Net:WaitForChild("RE/RegisterHit")
-local _FA2_RegisterAttack = _FA2_Net:WaitForChild("RE/RegisterAttack")
-local _FA2_Funcs          = {}
-
-local function _FA2_GetAllBladeHits()
-    local hits = {}
-    for _, v in pairs(workspace.Enemies:GetChildren()) do
-        if v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart")
-        and v.Humanoid.Health > 0
-        and (v.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude <= 65 then
-            table.insert(hits, v)
-        end
-    end
-    return hits
-end
-
-local function _FA2_GetPlayerHits()
-    local hits = {}
-    for _, v in pairs(workspace.Characters:GetChildren()) do
-        if v.Name ~= player.Name and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart")
-        and v.Humanoid.Health > 0
-        and (v.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude <= 65 then
-            table.insert(hits, v)
-        end
-    end
-    return hits
-end
-
-function _FA2_Funcs:Attack()
-    local bladehits = {}
-    for _, v in pairs(_FA2_GetAllBladeHits()) do table.insert(bladehits, v) end
-    for _, v in pairs(_FA2_GetPlayerHits())   do table.insert(bladehits, v) end
-    if #bladehits == 0 then return end
-    local args = { [1]=nil, [2]={}, [4]="078da341" }
-    for r, v in pairs(bladehits) do
-        _FA2_RegisterAttack:FireServer(0)
-        if not args[1] then args[1] = v.Head end
-        args[2][r] = { [1]=v, [2]=v.HumanoidRootPart }
-    end
-    _FA2_RegisterHit:FireServer(unpack(args))
-end
-
-RunService.Heartbeat:Connect(function()
-    if not getgenv().FastAttackEnabled then return end
-    pcall(function() _FA2_Funcs:Attack() end)
 end)
 
 --// ================= [2] AUTO ATTACK M1 FRUIT - LUÔN BẬT =================
@@ -544,33 +308,47 @@ StartAutoAttack()
 getgenv().TweenSpeed     = tonumber(Config.Settings.SpeedTween) or 300
 getgenv().BoatTweenSpeed = tonumber(Config.Settings.BoatSpeed)  or 350
 
---// ================= AUTO BUSO LOOP =================
-getgenv().IsFarming = Config.Settings.AutoFarm and true or false
+--// ================= AUTO BUSO LOOP - LUÔN CHẠY LIÊN TỤC (headless, không cần cờ) =====
 spawn(function()
     while task.wait(1) do
         pcall(function()
-            if getgenv().IsFarming then
-                local char = player.Character
-                local hasBuso1 = char and char:FindFirstChild("HasBuso")
-                local hasBuso2 = char and char:FindFirstChild("Buso")
-                if not hasBuso1 and not hasBuso2 then
-                    ReplicatedStorage.Remotes.CommF_:InvokeServer("Buso")
-                end
+            local hasBuso1 = player.Character and player.Character:FindFirstChild("HasBuso")
+            local hasBuso2 = player.Character and player.Character:FindFirstChild("Buso")
+
+            if not hasBuso1 and not hasBuso2 then
+                ReplicatedStorage.Remotes.CommF_:InvokeServer("Buso")
             end
         end)
     end
 end)
 
---// ================= AUTO RACE V3/V4 - LUÔN CHẠY (thay toggle) =================
-_G.AutoRaceV3 = true
-_G.AutoRaceV4 = true
+--// ================= WALK ON WATER (WaterBase-Plane) - LUÔN BẬT =================
+-- Bật sẵn từ lúc script chạy, không cần toggle. Loop liên tục để tự áp lại
+-- (phòng trường hợp server reset Size, hoặc Map load lại).
+_G.WalkWater_Part = true
 
+local function ApplyWalkWaterSize()
+    local map = Workspace:FindFirstChild("Map")
+    local waterBase = map and map:FindFirstChild("WaterBase-Plane")
+    if not waterBase then return end
+    if _G.WalkWater_Part then
+        waterBase.Size = Vector3.new(1000, 112, 1000)
+    else
+        waterBase.Size = Vector3.new(1000, 80, 1000)
+    end
+end
+
+spawn(function()
+    while task.wait(1) do
+        pcall(ApplyWalkWaterSize)
+    end
+end)
+
+--// ================= AUTO RACE V3/V4 - LUÔN CHẠY LIÊN TỤC (headless, không cần cờ) =====
 spawn(function()
     while wait() do
         pcall(function()
-            if _G.AutoRaceV3 then
-                ReplicatedStorage.Remotes.CommE:FireServer("ActivateAbility")
-            end
+            ReplicatedStorage.Remotes.CommE:FireServer("ActivateAbility")
         end)
     end
 end)
@@ -578,13 +356,11 @@ end)
 spawn(function()
     while wait(0.2) do
         pcall(function()
-            if _G.AutoRaceV4 then
-                local raceEnergy = player.Character and player.Character:FindFirstChild("RaceEnergy")
-                if raceEnergy and raceEnergy.Value == 1 then
-                    VirtualInputManager:SendKeyEvent(true,  "Y", false, game)
-                    wait()
-                    VirtualInputManager:SendKeyEvent(false, "Y", false, game)
-                end
+            local raceEnergy = player.Character and player.Character:FindFirstChild("RaceEnergy")
+            if raceEnergy and raceEnergy.Value == 1 then
+                VirtualInputManager:SendKeyEvent(true,  "Y", false, game)
+                wait()
+                VirtualInputManager:SendKeyEvent(false, "Y", false, game)
             end
         end)
     end
@@ -1130,6 +906,13 @@ local function FindNearestSeaMob()
     return bestMob, bestKey
 end
 
+-- ─── Kiểm tra player còn sống (dùng để dừng skill spam / weapon loop) ──
+local function IsPlayerAlive()
+    local char = player.Character
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    return hum ~= nil and hum.Health > 0
+end
+
 -- ─── Kiểm tra mob còn sống ────────────────────────────────────────────
 local function IsMobAlive(mob, genvKey)
     if not mob or not mob.Parent then return false end
@@ -1184,6 +967,134 @@ local function GetMobFarmCFrame(mob, genvKey)
         return CFrame.new(rp.Position.X, rp.Position.Y + yOff, rp.Position.Z)
     end
 end
+
+--// ===================================================================
+--//              SEA EVENT: NÉ SKILL (SeaBeast + TerrorShark)
+--// ===================================================================
+
+-- ─── Né skill SeaBeast: phát hiện animation windup đang phát ─────────
+local function DodgeSeabeasts()
+    local seaBeastsFolder = Workspace.SeaBeasts
+    for _, seaBeast in pairs(seaBeastsFolder:GetChildren()) do
+        if seaBeast:FindFirstChild("Humanoid") and seaBeast:FindFirstChild("Anims") then
+            local humanoid = seaBeast.Humanoid
+            local animator  = humanoid:FindFirstChildOfClass("Animator") or humanoid
+            for _, anim in pairs(seaBeast.Anims:GetChildren()) do
+                if anim:IsA("Animation") then
+                    if anim.AnimationId == "rbxassetid://8708221792"
+                    or anim.AnimationId == "rbxassetid://8708222556"
+                    or anim.AnimationId == "rbxassetid://8708223619"
+                    or anim.AnimationId == "rbxassetid://8708225668" then
+                        for _, animationTrack in pairs(animator:GetPlayingAnimationTracks()) do
+                            if animationTrack.Animation.AnimationId == anim.AnimationId then
+                                return animationTrack.IsPlaying
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- Hành động né: khi thấy SeaBeast dùng skill -> tween lên Y+150. Chờ tới khi
+-- SeaBeast dùng skill xong HOẶC đã đợi 1s (tuỳ cái nào tới trước), rồi tween
+-- xuống farm tiếp.
+local seaBeastDodgeConn  = nil
+local seaBeastIsDodging  = false
+
+local function TweenBackToSeaBeastFarm()
+    if getgenv().AutoSeaBeastEnabled then
+        local mob = Workspace.SeaBeasts:FindFirstChild("SeaBeast1")
+            or Workspace.SeaBeasts:FindFirstChild("SeaBeast")
+        if mob then
+            local tgtCF = GetMobFarmCFrame(mob, "AutoSeaBeastEnabled")
+            if tgtCF then TweenTo(tgtCF) end
+        end
+    end
+end
+
+local function StartSeaBeastDodge()
+    if seaBeastDodgeConn then return end
+    seaBeastDodgeConn = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            if DodgeSeabeasts() and not seaBeastIsDodging then
+                seaBeastIsDodging = true
+
+                local char = player.Character
+                local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    TweenTo(hrp.CFrame + Vector3.new(0, 150, 0))
+                end
+
+                -- Chờ SeaBeast dùng skill xong hoặc tối đa 1s, cái nào tới trước
+                task.spawn(function()
+                    local waited = 0
+                    while waited < 1 and DodgeSeabeasts() do
+                        task.wait(0.05)
+                        waited += 0.05
+                    end
+
+                    TweenBackToSeaBeastFarm()
+                    seaBeastIsDodging = false
+                end)
+            end
+        end)
+    end)
+end
+
+-- ─── Né skill TerrorShark: theo dõi Y, tween lên +200 khi Y đổi ──────
+local terrorSharkDodgeConn = nil
+local terrorSharkBaseY     = nil
+local terrorSharkIsDodging = false
+
+local function StartTerrorSharkDodge()
+    if terrorSharkDodgeConn then return end
+    terrorSharkDodgeConn = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            local mob = Workspace.Enemies:FindFirstChild("Terrorshark")
+            if not mob then
+                terrorSharkBaseY = nil
+                terrorSharkIsDodging = false
+                return
+            end
+            local rp = mob:FindFirstChild("HumanoidRootPart")
+            if not rp then return end
+            local currentY = rp.Position.Y
+
+            if not terrorSharkBaseY then
+                terrorSharkBaseY = currentY
+                return
+            end
+
+            if math.abs(currentY - terrorSharkBaseY) > 1 then
+                -- TerrorShark đang lên/xuống bất thường (chuẩn bị skill) -> né lên
+                if not terrorSharkIsDodging then
+                    terrorSharkIsDodging = true
+                    local char = player.Character
+                    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        TweenTo(hrp.CFrame + Vector3.new(0, 200, 0))
+                    end
+                end
+            else
+                -- TerrorShark về lại Y cũ -> tween về farm tiếp
+                if terrorSharkIsDodging then
+                    terrorSharkIsDodging = false
+                    if getgenv().AutoTerrorSharkEnabled then
+                        local tgtCF = GetMobFarmCFrame(mob, "AutoTerrorSharkEnabled")
+                        if tgtCF then TweenTo(tgtCF) end
+                    end
+                end
+                terrorSharkBaseY = currentY
+            end
+        end)
+    end)
+end
+
+StartSeaBeastDodge()
+StartTerrorSharkDodge()
 
 --// ===================================================================
 --//              SEA EVENT: MAIN STATE MACHINE
@@ -1282,12 +1193,14 @@ local function SeaFarmLoop()
                     StartSkillSpamLoop(function()
                         return not (seaFarmRunning and alive2
                             and getgenv().AutoSailEnabled == false
-                            and IsAnyMobToggleOn())
+                            and IsAnyMobToggleOn()
+                            and IsPlayerAlive())
                     end)
 
                     local timeout = 0
                     while seaFarmRunning and getgenv().AutoSailEnabled == false
                         and IsAnyMobToggleOn()
+                        and IsPlayerAlive()
                         and IsMobAlive(mob, genvKey) do
                         local tgtCF = GetMobFarmCFrame(mob, genvKey)
                         if tgtCF then TweenTo(tgtCF) end
@@ -1304,6 +1217,7 @@ local function SeaFarmLoop()
                     local timeout = 0
                     while seaFarmRunning and getgenv().AutoSailEnabled == false
                         and IsAnyMobToggleOn()
+                        and IsPlayerAlive()
                         and IsMobAlive(mob, genvKey) do
                         local tgtCF = GetMobFarmCFrame(mob, genvKey)
                         if tgtCF then TweenTo(tgtCF) end
@@ -1430,11 +1344,11 @@ local function SeaFarmLoop()
                     if isBoatOrBeast then
                         local alive = true
                         StartSkillSpamLoop(function()
-                            return not (seaFarmRunning and alive and IsAnyMobToggleOn())
+                            return not (seaFarmRunning and alive and IsAnyMobToggleOn() and IsPlayerAlive())
                         end)
 
                         local timeout = 0
-                        while seaFarmRunning and IsMobAlive(mob, genvKey) do
+                        while seaFarmRunning and IsPlayerAlive() and IsMobAlive(mob, genvKey) do
                             local tgtCF = GetMobFarmCFrame(mob, genvKey)
                             if tgtCF then TweenTo(tgtCF) end
                             task.wait(0.1)
@@ -1448,7 +1362,7 @@ local function SeaFarmLoop()
                         StartWeaponLoop(function() return GetWeaponForMob(genvKey) end)
 
                         local timeout = 0
-                        while seaFarmRunning and IsMobAlive(mob, genvKey) do
+                        while seaFarmRunning and IsPlayerAlive() and IsMobAlive(mob, genvKey) do
                             local tgtCF = GetMobFarmCFrame(mob, genvKey)
                             if tgtCF then TweenTo(tgtCF) end
                             task.wait(0.1)
@@ -1518,6 +1432,8 @@ end)
 player.CharacterAdded:Connect(function(char)
     if not seaFarmRunning then return end
 
+    StopSkillSpamLoop()
+    StopWeaponLoop()
     if activeTween then activeTween:Cancel() activeTween = nil end
     CancelBoatTween()
     if seaFarmThread then task.cancel(seaFarmThread) seaFarmThread = nil end
