@@ -487,6 +487,230 @@ local INTERMEDIATE_COOLDOWN = 3  -- Giây giữa các lần tele trung gian
 local _intermediateRunning  = false  -- Guard: ngăn _tp tween trong lúc đang spam TP
 
 --------------------------------------------------------------------
+-- RESET TELEPORT [BETA]
+-- Lấy spawn gần đích, SetLastSpawnPoint rồi reset character.
+-- Đây là tầng ưu tiên cao nhất: Reset -> Tiki -> Portal.
+--------------------------------------------------------------------
+local ResetTP = getgenv().ResetTeleport or {}
+getgenv().ResetTeleport = ResetTP
+
+local ResetTP_ComF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
+local ResetTP_WorldOrigin = Workspace:WaitForChild("_WorldOrigin", 10)
+local ResetTP_BypassTpLocation = {}
+local ResetTP_PlayerSpawns = {}
+local ResetTP_Connections = {}
+
+local function ResetTP_IsAlive()
+    local char = player.Character
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    return hum and hum.Health > 0
+end
+
+local function ResetTP_GetHRP()
+    local char = player.Character
+    if not char then return nil end
+    return char:FindFirstChild("HumanoidRootPart")
+        or char:FindFirstChild("UpperTorso")
+        or char:FindFirstChild("Torso")
+end
+
+local function ResetTP_Distance(a, b)
+    if typeof(a) == "CFrame" then a = a.Position end
+    if typeof(b) == "CFrame" then b = b.Position end
+    if typeof(a) ~= "Vector3" then return math.huge end
+    if typeof(b) ~= "Vector3" then
+        local hrp = ResetTP_GetHRP()
+        if not hrp then return math.huge end
+        b = hrp.Position
+    end
+    return (a - b).Magnitude
+end
+
+local function ResetTP_ClearConnections()
+    for _, c in ipairs(ResetTP_Connections) do
+        pcall(function() c:Disconnect() end)
+    end
+    table.clear(ResetTP_Connections)
+end
+
+local function ResetTP_LoadBypassTPLocation()
+    ResetTP_ClearConnections()
+    table.clear(ResetTP_PlayerSpawns)
+    table.clear(ResetTP_BypassTpLocation)
+
+    local worldOrigin = ResetTP_WorldOrigin or Workspace:FindFirstChild("_WorldOrigin")
+    local playerSpawns = worldOrigin and worldOrigin:FindFirstChild("PlayerSpawns")
+    local locations = worldOrigin and worldOrigin:FindFirstChild("Locations")
+    if not playerSpawns or not locations then return false end
+
+    local function addSpawn(model)
+        if not model or not model:IsA("Model") then return end
+        local ok, cf = pcall(function() return model:GetModelCFrame() end)
+        if not ok or not cf then return end
+        table.insert(ResetTP_PlayerSpawns, {model.Name, cf})
+    end
+
+    for _, folder in ipairs(playerSpawns:GetChildren()) do
+        for _, model in ipairs(folder:GetChildren()) do
+            addSpawn(model)
+        end
+        table.insert(ResetTP_Connections, folder.ChildAdded:Connect(function(child)
+            task.wait()
+            addSpawn(child)
+        end))
+    end
+
+    local function mapLocation(loc)
+        if not loc:IsA("BasePart") then return end
+        local list = {}
+        ResetTP_BypassTpLocation[loc.Name] = list
+        local mesh = loc:FindFirstChildWhichIsA("SpecialMesh")
+        local scaleX = (mesh and mesh.Scale.X) or 1
+        local radius = (loc.Size.X * scaleX) / 2
+        for _, entry in ipairs(ResetTP_PlayerSpawns) do
+            if (entry[2].Position - loc.Position).Magnitude <= radius then
+                table.insert(list, entry)
+            end
+        end
+    end
+
+    for _, loc in ipairs(locations:GetChildren()) do
+        mapLocation(loc)
+    end
+    table.insert(ResetTP_Connections, locations.ChildAdded:Connect(function(child)
+        task.wait()
+        mapLocation(child)
+    end))
+    return #ResetTP_PlayerSpawns > 0
+end
+
+local function ResetTP_GetTPLocation(pos)
+    if typeof(pos) == "CFrame" then pos = pos.Position end
+    local locations = ResetTP_WorldOrigin and ResetTP_WorldOrigin:FindFirstChild("Locations")
+    if not locations then return nil end
+
+    local bestName, bestDist = nil, math.huge
+    for _, loc in ipairs(locations:GetChildren()) do
+        local list = ResetTP_BypassTpLocation[loc.Name]
+        if list and loc:IsA("BasePart") then
+            local mesh = loc:FindFirstChildWhichIsA("SpecialMesh")
+            local scaleX = (mesh and mesh.Scale.X) or 1
+            local radius = (loc.Size.X * scaleX) / 2
+            if ResetTP_Distance(pos, loc.Position) <= radius then
+                for _, entry in ipairs(list) do
+                    local d = ResetTP_Distance(pos, entry[2].Position)
+                    if d < bestDist then
+                        bestDist = d
+                        bestName = entry[1]
+                    end
+                end
+            end
+        end
+    end
+    return bestName
+end
+
+local function ResetTP_TweenBypass(target)
+    local targetPos = typeof(target) == "CFrame" and target.Position or target
+    if typeof(targetPos) ~= "Vector3" then return false end
+
+    if not next(ResetTP_BypassTpLocation) then
+        if not ResetTP_LoadBypassTPLocation() then return false end
+    end
+
+    local char = player.Character
+    if not char or not ResetTP_GetHRP() then return false end
+
+    local spawnList = {}
+    local seen = {}
+    for _, entries in pairs(ResetTP_BypassTpLocation) do
+        for _, entry in ipairs(entries) do
+            local cf = entry[2]
+            local key = string.format("%.3f|%.3f|%.3f", cf.Position.X, cf.Position.Y, cf.Position.Z)
+            if not seen[key] then
+                seen[key] = true
+                table.insert(spawnList, cf)
+            end
+        end
+    end
+    if #spawnList == 0 then return false end
+
+    table.sort(spawnList, function(a, b)
+        return ResetTP_Distance(a.Position, targetPos) < ResetTP_Distance(b.Position, targetPos)
+    end)
+
+    local lastSpawnScript = char:FindFirstChild("LastSpawnPoint")
+    if lastSpawnScript and lastSpawnScript:IsA("LocalScript") then
+        lastSpawnScript.Disabled = true
+    end
+
+    local setOk = false
+    for _, spawnCF in ipairs(spawnList) do
+        local spawnName = ResetTP_GetTPLocation(spawnCF.Position)
+        if spawnName then
+            local distSpawnToTarget = ResetTP_Distance(spawnCF.Position, targetPos)
+            local distPlayerToTarget = ResetTP_Distance(targetPos)
+            if (distSpawnToTarget + 500) < distPlayerToTarget
+                and ResetTP_Distance(spawnCF.Position) >= 1000 then
+                local ok = pcall(function()
+                    ResetTP_ComF:InvokeServer("SetLastSpawnPoint", spawnName)
+                end)
+                if ok then
+                    setOk = true
+                    break
+                end
+            end
+        end
+    end
+
+    if lastSpawnScript then
+        lastSpawnScript.Disabled = false
+    end
+    return setOk
+end
+
+local function ResetTP_ShouldUse(targetCF)
+    if not getgenv().ResetTeleportEnabled then return false end
+    if getgenv()._ResetTP_BlockFlag then return false end
+    if getgenv().ReadyToDodge then return false end
+    if not ResetTP_GetHRP() or not ResetTP_IsAlive() then return false end
+
+    local targetPos = typeof(targetCF) == "CFrame" and targetCF.Position or targetCF
+    if typeof(targetPos) ~= "Vector3" then return false end
+    return ResetTP_Distance(targetPos) >= 1000
+end
+
+local function ResetTP_Try(targetCF)
+    if not ResetTP_ShouldUse(targetCF) then return false end
+    return ResetTP_TweenBypass(targetCF)
+end
+
+ResetTP.LoadBypassTPLocation = ResetTP_LoadBypassTPLocation
+ResetTP.GetTPLocation = ResetTP_GetTPLocation
+ResetTP.TweenBypass = ResetTP_TweenBypass
+ResetTP.ShouldResetTeleportSmart = ResetTP_ShouldUse
+ResetTP.TryResetTeleport = ResetTP_Try
+ResetTP.BypassTpLocation = ResetTP_BypassTpLocation
+ResetTP.GetDistance = ResetTP_Distance
+ResetTP.getHRP = ResetTP_GetHRP
+
+getgenv().ReadyToDodge = getgenv().ReadyToDodge or false
+getgenv()._ResetTP_BlockFlag = getgenv()._ResetTP_BlockFlag or false
+
+task.spawn(function()
+    for _ = 1, 20 do
+        local wo = Workspace:FindFirstChild("_WorldOrigin")
+        if wo and wo:FindFirstChild("PlayerSpawns") and wo:FindFirstChild("Locations") then
+            ResetTP_WorldOrigin = wo
+            break
+        end
+        task.wait(0.5)
+    end
+    pcall(ResetTP_LoadBypassTPLocation)
+end)
+
+--------------------------------------------------------------------
 -- HÀM TELE TRUNG GIAN (ASYNC)
 -- Sơ đồ:
 --   1. Xác định đảo trung gian gần đích nhất
@@ -501,7 +725,45 @@ local _intermediateRunning  = false  -- Guard: ngăn _tp tween trong lúc đang 
 --         false nếu bỏ qua (caller tự gọi _tp như bình thường).
 --------------------------------------------------------------------
 local function doIntermediateTeleport(targetCF, speed)
-    -- Toggle tắt → bỏ qua
+    -- Đang có một tầng tele trung gian chạy thì giữ nguyên tầng đó.
+    if _intermediateRunning then return true end
+
+    -- Ưu tiên: Reset -> Tiki -> Portal.
+    -- Reset không phụ thuộc TelePorto; chỉ cần Reset Teleport được bật
+    -- và reset thực sự có lợi cho quãng đường hiện tại.
+    if ResetTP_Try(targetCF) then
+        _intermediateRunning = true
+
+        task.spawn(function()
+            if currentTween then
+                pcall(function() currentTween:Cancel() end)
+                currentTween = nil
+            end
+            currentTweenSpeed = 0
+            currentTweenTarget = nil
+
+            local oldCharacter = player.Character
+            local oldHumanoid = oldCharacter and oldCharacter:FindFirstChildOfClass("Humanoid")
+            if oldHumanoid and oldHumanoid.Health > 0 then
+                pcall(function() oldHumanoid.Health = 0 end)
+            end
+
+            local newCharacter = player.CharacterAdded:Wait()
+            local newRoot = newCharacter:WaitForChild("HumanoidRootPart", 12)
+            if newRoot then
+                task.wait(0.35)
+            end
+
+            _intermediateRunning = false
+            if getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob
+                or getgenv().TravelToIsland or getgenv().TPNpc or getgenv().AutoZou or getgenv().TravelDres then
+                _tp(targetCF, speed)
+            end
+        end)
+        return true
+    end
+
+    -- Không Reset được → mới xét Portal/Tiki.
     if not getgenv().TelePorto then return false end
 
     -- Guard: đang chạy rồi → bỏ qua (caller không gọi _tp lúc này)
@@ -816,20 +1078,37 @@ local Tabs = {
 }
 
 --------------------------------------------------------------------
--- TOGGLE CALLBACK REGISTRY
--- Lưu Callback của mọi toggle để LoadConfig có thể gọi thủ công.
+-- OPTION CALLBACK REGISTRY
+-- Lưu Callback của MỌI element (Toggle / Dropdown / Slider) để LoadConfig
+-- có thể gọi thủ công.
 -- Lý do: Fluent-Renewed SetValue() chỉ cập nhật visual, KHÔNG fire Callback.
+-- [FIX] Trước đây chỉ Toggle được lưu vào registry này (_ToggleCBs), nên khi
+-- LoadConfig gọi opt:SetValue() cho Dropdown/Slider, các biến global đứng
+-- sau Callback (getgenv().FarmMode, SelectedFarm, FlySpeed, ChooseWP, v.v.)
+-- KHÔNG BAO GIỜ được set lại — dropdown/slider chỉ đổi hình ảnh trên UI chứ
+-- không áp dụng giá trị đã lưu. Đây chính là nguyên nhân:
+--   1) AutoFarm bật lại sau khi load nhưng đứng im (SelectedFarm/FarmMode
+--      vẫn là giá trị mặc định vì FarmType/FarmMode dropdown chưa từng fire).
+--   2) Dropdown farm mode hiển thị đúng lựa chọn đã lưu (Orbit/Star) nhưng
+--      script vẫn farm theo Up (mặc định) cho đến khi người dùng chọn lại.
+-- Giữ tên biến _ToggleCBs làm alias để không phải sửa các chỗ khác đã dùng.
 --------------------------------------------------------------------
-local _ToggleCBs = {}
+local _OptionCBs = {}
+local _ToggleCBs = _OptionCBs -- alias (tương thích ngược)
 
--- Monkey-patch CreateToggle trên tất cả tab để tự động thu thập callback
+-- Monkey-patch CreateToggle / CreateDropdown / CreateSlider trên tất cả tab
+-- để tự động thu thập callback của MỌI loại element, không chỉ Toggle.
 local function _PatchTab(tab)
-    local orig = tab.CreateToggle
-    tab.CreateToggle = function(self, id, opts)
-        if opts and type(opts.Callback) == "function" then
-            _ToggleCBs[id] = opts.Callback
+    for _, methodName in ipairs({"CreateToggle", "CreateDropdown", "CreateSlider"}) do
+        local orig = tab[methodName]
+        if orig then
+            tab[methodName] = function(self, id, opts)
+                if opts and type(opts.Callback) == "function" then
+                    _OptionCBs[id] = opts.Callback
+                end
+                return orig(self, id, opts)
+            end
         end
-        return orig(self, id, opts)
     end
 end
 for _, t in pairs(Tabs) do _PatchTab(t) end
@@ -995,8 +1274,13 @@ getgenv().FarmDistance = 15
 getgenv().FarmPos = Vector3.new(0, 15, 0)
 getgenv().SmoothMode = false
 getgenv().Noclip = false            -- Xuyên tường (tắt va chạm với địa hình)
-getgenv().TelePorto = false         -- Bật/tắt tele trung gian khi tween xa
-getgenv().TeleTiki = true              -- Cho phép dùng Tiki làm đảo trung gian (W3)
+getgenv().TelePorto = false         -- Portal/intermediate teleport
+getgenv().TeleTiki = true            -- Cho phép dùng Tiki làm trung gian (W3)
+getgenv().ResetTeleportEnabled = false -- Reset teleport [Beta], ưu tiên cao nhất
+
+-- Reset Teleport [Beta] được ưu tiên theo thứ tự:
+--   Reset -> Tiki -> Portal
+-- Reset chỉ được dùng khi nó thực sự rút ngắn quãng đường (>= 1000 stud).
 
 getgenv().IsFarming = false         -- Trạng thái đang farm (true = đang farm, false = dừng)
 getgenv().AutoBusoLoop = false      -- Tự động bật Buso Haki liên tục
@@ -1360,6 +1644,9 @@ Tabs.Main:CreateToggle("AutoFarmSelectMob", {
 --// ================= SETTINGS TAB =================
 Tabs.Settings:AddSection("Settings / Configure")
 
+--------------------------------------------------------------------
+-- WEAPON CONFIG
+--------------------------------------------------------------------
 local _Weapon = {
     "Melee",
     "Sword",
@@ -1380,6 +1667,8 @@ local Weapon_Config = Tabs.Settings:CreateDropdown("Weapon_Config", {
 _G.ChooseWP = "Melee"
 _G.SelectWeapon = nil
 
+-- ===== REMOVE CARD-RELATED GLOBALS (AutoPickCard features removed) =====
+
 --------------------------------------------------------------------
 -- FARM MODE (redz-style): Up / Orbit / Star
 --------------------------------------------------------------------
@@ -1394,19 +1683,6 @@ Tabs.Settings:CreateDropdown("FarmMode", {
     end),
 })
 
-Tabs.Settings:CreateSlider("FarmDistance", {
-    Title = "Farm Distance",
-    Description = "Up: độ cao Y | Orbit: bán kính vòng | Star: lệch ngang",
-    Default = 15,
-    Min = 5,
-    Max = 30,
-    Rounding = 1,
-    Callback = function(v)
-        getgenv().FarmDistance = v
-        getgenv().FarmPos = Vector3.new(0, v, 0)
-    end,
-})
-
 Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
     Description = "Tốc độ bay / tween (0 - 300)",
@@ -1419,16 +1695,18 @@ Tabs.Settings:CreateSlider("SpeedTween", {
     end,
 })
 
-Tabs.Settings:CreateToggle("SmoothFarmMode", {
-    Title = "Smooth Farm Mode",
-    Description = "Giảm tốc độ tính toán để cải thiện FPS (redz SmoothMode)",
-    Default = false,
+Tabs.Settings:CreateSlider("FarmDistance", {
+    Title = "Farm Distance",
+    Description = "Up: độ cao Y | Orbit: bán kính vòng | Star: lệch ngang",
+    Default = 15,
+    Min = 5,
+    Max = 30,
+    Rounding = 1,
     Callback = function(v)
-        getgenv().SmoothMode = v
+        getgenv().FarmDistance = v
+        getgenv().FarmPos = Vector3.new(0, v, 0)
     end,
 })
-
--- ===== REMOVE CARD-RELATED GLOBALS (AutoPickCard features removed) =====
 
 
 
@@ -1742,6 +2020,15 @@ Tabs.Settings:CreateToggle("BringMob", {
     end
 })
 
+Tabs.Settings:CreateToggle("SmoothFarmMode", {
+    Title = "Smooth Farm Mode",
+    Description = "Giảm tốc độ tính toán để cải thiện FPS (redz SmoothMode)",
+    Default = false,
+    Callback = function(v)
+        getgenv().SmoothMode = v
+    end,
+})
+
 Tabs.Settings:CreateToggle("BuddhaFarm", {
     Title = "Buddha Farm",
     Description = "Bật: Tự động kích hoạt Buddha khi farm (nếu đang dùng fruit Buddha). Tắt: Farm bình thường không bật Buddha.",
@@ -1815,6 +2102,15 @@ Tabs.Settings:CreateToggle("TeleTiki", {
     Default = true,
     Callback = function(v)
         getgenv().TeleTiki = v
+    end
+})
+
+Tabs.Settings:CreateToggle("ResetTeleportBeta", {
+    Title = "Reset teleport [Beta]",
+    Description = "Ưu tiên cao nhất: đặt LastSpawnPoint gần đích rồi reset để respawn gần hơn. Thứ tự Reset -> Tiki -> Portal.",
+    Default = false,
+    Callback = function(v)
+        getgenv().ResetTeleportEnabled = v
     end
 })
 
@@ -2242,6 +2538,7 @@ local function GetFarmCFrame(mob)
 
     if mode == "Orbit" then
         -- Bay vòng tròn quanh mob, cao Y = 8, bán kính = FarmDistance
+        -- Chỉ set vị trí (giống redz) — không ép hướng mặt về mob
         local now = tick()
         local dt = now - _orbitLastTick
         _orbitLastTick = now
@@ -2254,13 +2551,11 @@ local function GetFarmCFrame(mob)
             _orbitAngle = _orbitAngle + speed * dt
         end
         local offset = Vector3.new(math.cos(_orbitAngle) * dist, 8, math.sin(_orbitAngle) * dist)
-        local targetPos = mobPos + offset
-        return CFrame.new(targetPos, mobPos) -- nhìn về mob
+        return CFrame.new(mobPos + offset)
     elseif mode == "Star" then
         -- Nhảy trục ±X / ±Z ngẫu nhiên quanh mob (đổi mỗi 0.4s)
-        local targetCF = mobCF + GetNextAxis()
-        local targetPos = targetCF.Position
-        return CFrame.new(targetPos, mobPos)
+        -- Chỉ set vị trí (giống redz) — không ép hướng mặt về mob
+        return mobCF + GetNextAxis()
     else
         -- Up (mặc định): đứng trên mob theo FarmPos (0, FarmDistance, 0)
         local farmPos = getgenv().FarmPos or Vector3.new(0, dist, 0)
@@ -4653,34 +4948,46 @@ local function LoadConfig()
             local data = HttpService:JSONDecode(readfile(_SV_FILE))
 
             -- ── PASS 1: Load Dropdown / Slider / Colorpicker trước ──────────
-            -- Các biến global (SelectedFarm, FlySpeed...) phải
-            -- được set TRƯỚC khi toggle farm bật và gọi logic farm.
+            -- Các biến global (SelectedFarm, FlySpeed, FarmMode, ChooseWP...)
+            -- phải được set TRƯỚC khi toggle farm bật và gọi logic farm.
+            -- [FIX] SetValue() chỉ cập nhật visual, KHÔNG fire Callback, nên
+            -- phải gọi thủ công _OptionCBs[id](value) giống hệt cách Toggle
+            -- đã làm ở Pass 2 bên dưới — nếu không thì Dropdown/Slider hiển
+            -- thị đúng giá trị đã lưu nhưng logic bên trong (getgenv().FarmMode,
+            -- SelectedFarm, FlySpeed, ChooseWP...) vẫn ở giá trị mặc định.
             for id, value in pairs(data) do
                 local opt = Library.Options[id]
                 if opt and opt.Type ~= "Toggle" then
+                    local resolvedValue = value
                     pcall(function()
                         if type(value) == "table" and value.__color then
-                            opt:SetValue(Color3.new(value.R, value.G, value.B))
-                        else
-                            opt:SetValue(value)
+                            resolvedValue = Color3.new(value.R, value.G, value.B)
                         end
+                        opt:SetValue(resolvedValue)   -- cập nhật visual
                     end)
+                    if _OptionCBs[id] then
+                        task.spawn(_OptionCBs[id], resolvedValue)  -- kích hoạt logic
+                    end
                 end
             end
 
+            -- Chờ đủ lâu để mọi callback Dropdown/Slider ở Pass 1 chạy xong
+            -- (kể cả GuardDropdown delay ~0.08s trên mobile) trước khi bật
+            -- Toggle farm ở Pass 2, tránh AutoFarm đọc phải giá trị mặc định.
+            task.wait(0.35)
+
             -- ── PASS 2: Load Toggle ─────────────────────────────────────────
             -- SetValue() chỉ cập nhật visual, KHÔNG fire Callback.
-            -- → Sau SetValue, gọi thủ công _ToggleCBs[id](value) để
+            -- → Sau SetValue, gọi thủ công _OptionCBs[id](value) để
             --   kích hoạt đúng logic (farm, esp, fly, v.v.)
-            task.wait(0.15)
             for id, value in pairs(data) do
                 local opt = Library.Options[id]
                 if opt and opt.Type == "Toggle" then
                     pcall(function()
                         opt:SetValue(value)           -- cập nhật visual
                     end)
-                    if value == true and _ToggleCBs[id] then
-                        task.spawn(_ToggleCBs[id], true)  -- kích hoạt logic
+                    if value == true and _OptionCBs[id] then
+                        task.spawn(_OptionCBs[id], true)  -- kích hoạt logic
                     end
                 end
             end
@@ -5102,11 +5409,14 @@ spawn(function()
 end)
 
 -- ================================================================
--- AUTO SEA 3 — Travel Zou (Third Sea), yêu cầu lv >= 1500
+-- AUTO SEA 3 — Travel Zou (Third Sea), logic theo redz
+-- Thứ tự chính của redz:
+--   FlamingoAccess -> Don Swan -> ZQuest -> Indra -> TravelTo(3)
+-- Topi vẫn giữ Bartilo/FlamingoAccess tự động để toggle này chạy độc lập.
 -- ================================================================
 local AutoSea3Toggle = Tabs.Quests:CreateToggle("AutoSea3", {
     Title       = "Auto Sea 3",
-    Description = "Tự động hoàn thành Bartilo Quest + mở FlamingoAccess và travel sang Third Sea (Zou). Yêu cầu lv >= 1500.",
+    Description = "Auto Bartilo + FlamingoAccess + Don Swan + ZQuest + Indra rồi sang Third Sea (Zou). Lv >= 1500.",
     Default     = false,
 })
 
@@ -5116,7 +5426,7 @@ AutoSea3Toggle:OnChanged(function(v)
         getgenv().IsFarming = true
         getgenv().Noclip    = true
         startFly()
-        Library:Notify({ Title = "Auto Sea 3", Content = "Đã bật — đang xử lý Travel Zou...", Duration = 3 })
+        Library:Notify({ Title = "Auto Sea 3", Content = "Đã bật — chạy logic redz → Third Sea...", Duration = 3 })
     else
         local anyFarm = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
             or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
@@ -5134,162 +5444,172 @@ spawn(function()
     while task.wait(Sec) do
         pcall(function()
             if not getgenv().AutoZou then return end
-            if player.Data.Level.Value < 1500 then return end
+            local level = player.Data.Level.Value
+            if level < 1500 or World3 then return end
 
             local CommF = ReplicatedStorage.Remotes.CommF_
             local root  = getRoot()
             if not root then return end
 
+            ----------------------------------------------------------------
+            -- REDZ: Bartilo -> FlamingoAccess
+            ----------------------------------------------------------------
             local bartiloProgress = CommF:InvokeServer("BartiloQuestProgress", "Bartilo")
 
-            -- ── STAGE 3: Bartilo quest hoàn tất ──────────────────────────
-            if bartiloProgress == 3 then
-                local unlockables = CommF:InvokeServer("GetUnlockables")
+            if bartiloProgress ~= 3 then
+                if bartiloProgress == 0 then
+                    local questUI    = player.PlayerGui:FindFirstChild("Main")
+                    local questPanel = questUI and questUI:FindFirstChild("Quest")
+                    local questVis   = questPanel and questPanel.Visible
+                    local questTitle = ""
+                    if questVis then
+                        pcall(function()
+                            questTitle = questPanel.Container.QuestTitle.Title.Text
+                        end)
+                    end
 
-                if unlockables and unlockables.FlamingoAccess ~= nil then
-                    -- Đã có FlamingoAccess — xử lý ZQuest và travel Zou
-                    local zProgress = CommF:InvokeServer("ZQuestProgress", "Check")
-
-                    if zProgress == 0 then
-                        -- Kill rip_indra để tiến hành ZQuest
-                        local indra = GetNearestEnemy("rip_indra")
-                        if indra and indra:FindFirstChild("Humanoid") and indra.Humanoid.Health > 0 then
-                            getgenv().CurrentTargetMob = indra
-                            local targetCF = GetFarmCFrame(indra)
+                    if string.find(questTitle, "Swan Pirates") and string.find(questTitle, "50") and questVis then
+                        local swanPirate = GetNearestEnemy("Swan Pirate")
+                        if swanPirate and swanPirate:FindFirstChild("Humanoid") and swanPirate.Humanoid.Health > 0 then
+                            getgenv().CurrentTargetMob = swanPirate
+                            local targetCF = GetFarmCFrame(swanPirate)
                             if targetCF then TweenToPos(targetCF, getgenv().FlySpeed) end
-                            AttackEnemy(indra)
-                            if indra.Humanoid.Health <= 0 then
-                                task.wait(0.5)
-                                CommF:InvokeServer("F_", "TravelZou")
-                            end
-                        else
-                            CommF:InvokeServer("F_", "ZQuestProgress", "Check")
-                            task.wait(0.1)
-                            CommF:InvokeServer("F_", "ZQuestProgress", "Begin")
-                        end
-
-                    elseif zProgress == 1 then
-                        -- ZQuest hoàn tất, travel thẳng
-                        CommF:InvokeServer("F_", "TravelZou")
-
-                    else
-                        -- Kill Don Swan để unlock Zou
-                        local donSwan = GetNearestEnemy("Don Swan")
-                        if donSwan and donSwan:FindFirstChild("Humanoid") and donSwan.Humanoid.Health > 0 then
-                            getgenv().CurrentTargetMob = donSwan
-                            local targetCF = GetFarmCFrame(donSwan)
-                            if targetCF then TweenToPos(targetCF, getgenv().FlySpeed) end
-                            AttackEnemy(donSwan)
+                            AttackEnemy(swanPirate)
                         else
                             getgenv().CurrentTargetMob = nil
-                            TweenToPos(CFrame.new(2288.802, 15.1870775, 863.034607), getgenv().FlySpeed)
+                            TweenToPos(CFrame.new(1057.92761, 137.614319, 1242.08069), getgenv().FlySpeed)
                         end
-                    end
-
-                else
-                    -- Chưa có FlamingoAccess — dùng Devil Fruit nói chuyện Trevor để unlock
-                    local TabelDevilFruitStore = {}
-                    local TabelDevilFruitOpen  = {}
-
-                    for _, e in pairs(CommF:InvokeServer("getInventoryFruits")) do
-                        for k, val in pairs(e) do
-                            if k == "Name" then
-                                table.insert(TabelDevilFruitStore, val)
-                            end
-                        end
-                    end
-
-                    for _, e in next, CommF:InvokeServer("GetFruits") do
-                        if e.Price >= 1000000 then
-                            table.insert(TabelDevilFruitOpen, e.Name)
-                        end
-                    end
-
-                    local currentUnlockables = CommF:InvokeServer("GetUnlockables")
-                    for _, fruitName in pairs(TabelDevilFruitOpen) do
-                        for _, storedName in pairs(TabelDevilFruitStore) do
-                            if fruitName == storedName and currentUnlockables.FlamingoAccess == nil then
-                                if not player.Backpack:FindFirstChild(storedName) then
-                                    CommF:InvokeServer("F_", "LoadFruit", storedName)
-                                else
-                                    CommF:InvokeServer("F_", "TalkTrevor", "1")
-                                    CommF:InvokeServer("F_", "TalkTrevor", "2")
-                                    CommF:InvokeServer("F_", "TalkTrevor", "3")
-                                end
-                            end
-                        end
-                    end
-                    CommF:InvokeServer("F_", "TalkTrevor", "1")
-                    CommF:InvokeServer("F_", "TalkTrevor", "2")
-                    CommF:InvokeServer("F_", "TalkTrevor", "3")
-                end
-
-            -- ── STAGE 0: Bắt đầu — Kill Swan Pirates (50 mobs) ─────────
-            elseif bartiloProgress == 0 then
-                local questUI     = player.PlayerGui:FindFirstChild("Main")
-                local questPanel  = questUI and questUI:FindFirstChild("Quest")
-                local questVis    = questPanel and questPanel.Visible
-                local questTitle  = ""
-                if questVis then
-                    pcall(function()
-                        questTitle = questPanel.Container.QuestTitle.Title.Text
-                    end)
-                end
-
-                if string.find(questTitle, "Swan Pirates") and string.find(questTitle, "50") and questVis then
-                    local swanPirate = GetNearestEnemy("Swan Pirate")
-                    if swanPirate and swanPirate:FindFirstChild("Humanoid") and swanPirate.Humanoid.Health > 0 then
-                        getgenv().CurrentTargetMob = swanPirate
-                        local targetCF = GetFarmCFrame(swanPirate)
-                        if targetCF then TweenToPos(targetCF, getgenv().FlySpeed) end
-                        AttackEnemy(swanPirate)
                     else
                         getgenv().CurrentTargetMob = nil
-                        TweenToPos(CFrame.new(1057.92761, 137.614319, 1242.08069), getgenv().FlySpeed)
+                        TweenToPos(CFrame.new(-462, 73, 300), getgenv().FlySpeed)
                     end
-                else
-                    -- Bay đến NPC Bartilo để nhận quest
-                    getgenv().CurrentTargetMob = nil
-                    TweenToPos(CFrame.new(-456.28952, 73.0200958, 299.895966), getgenv().FlySpeed)
-                end
 
-            -- ── STAGE 1: Kill Jeremy ─────────────────────────────────────
-            elseif bartiloProgress == 1 then
-                local jeremy = GetNearestEnemy("Jeremy")
-                if jeremy and jeremy:FindFirstChild("Humanoid") and jeremy.Humanoid.Health > 0 then
-                    getgenv().CurrentTargetMob = jeremy
-                    local targetCF = GetFarmCFrame(jeremy)
-                    if targetCF then TweenToPos(targetCF, getgenv().FlySpeed) end
-                    AttackEnemy(jeremy)
-                else
-                    getgenv().CurrentTargetMob = nil
-                    TweenToPos(CFrame.new(2099.88159, 448.931, 648.997375), getgenv().FlySpeed)
-                end
+                elseif bartiloProgress == 1 then
+                    local jeremy = GetNearestEnemy("Jeremy")
+                    if jeremy and jeremy:FindFirstChild("Humanoid") and jeremy.Humanoid.Health > 0 then
+                        getgenv().CurrentTargetMob = jeremy
+                        local targetCF = GetFarmCFrame(jeremy)
+                        if targetCF then TweenToPos(targetCF, getgenv().FlySpeed) end
+                        AttackEnemy(jeremy)
+                    else
+                        getgenv().CurrentTargetMob = nil
+                        TweenToPos(CFrame.new(2316, 449, 787), getgenv().FlySpeed)
+                    end
 
-            -- ── STAGE 2: Điều hướng qua mê cung Bartilo ─────────────────
-            elseif bartiloProgress == 2 then
-                getgenv().CurrentTargetMob = nil
-                -- Bay đến điểm xuất phát của mê cung
-                TweenToPos(CFrame.new(-1836, 11, 1714), getgenv().FlySpeed)
-                task.wait(0.3)
-                -- Duyệt tuần tự qua các checkpoint bằng direct CFrame
-                local checkpoints = {
-                    CFrame.new(-1850.49329, 13.1789551, 1750.89685),
-                    CFrame.new(-1858.87305, 19.3777466, 1712.01807),
-                    CFrame.new(-1803.94324, 16.5789185, 1750.89685),
-                    CFrame.new(-1858.55835, 16.8604317, 1724.79541),
-                    CFrame.new(-1869.54224, 15.987854,  1681.00659),
-                    CFrame.new(-1800.0979,  16.4978027, 1684.52368),
-                    CFrame.new(-1819.26343, 14.795166,  1717.90625),
-                    CFrame.new(-1813.51843, 14.8604736, 1724.79541),
-                }
-                for _, cp in ipairs(checkpoints) do
-                    if not getgenv().AutoZou then break end
-                    local r = getRoot()
-                    if r then r.CFrame = cp end
-                    task.wait(0.12)
+                elseif bartiloProgress == 2 then
+                    getgenv().CurrentTargetMob = nil
+                    local checkpoints = {
+                        CFrame.new(-1926, 13, 1738),
+                        CFrame.new(-1850.49329, 13.1789551, 1750.89685),
+                        CFrame.new(-1858.87305, 19.3777466, 1712.01807),
+                        CFrame.new(-1803.94324, 16.5789185, 1750.89685),
+                        CFrame.new(-1858.55835, 16.8604317, 1724.79541),
+                        CFrame.new(-1869.54224, 15.987854, 1681.00659),
+                        CFrame.new(-1800.0979, 16.4978027, 1684.52368),
+                        CFrame.new(-1819.26343, 14.795166, 1717.90625),
+                        CFrame.new(-1813.51843, 14.8604736, 1724.79541),
+                    }
+                    for _, cp in ipairs(checkpoints) do
+                        if not getgenv().AutoZou then break end
+                        local r = getRoot()
+                        if r then r.CFrame = cp end
+                        task.wait(0.12)
+                    end
                 end
+                return
             end
+
+            ----------------------------------------------------------------
+            -- Đã xong Bartilo: mở FlamingoAccess như phần trước của Topi.
+            ----------------------------------------------------------------
+            local unlockables = CommF:InvokeServer("GetUnlockables")
+            if not (unlockables and unlockables.FlamingoAccess ~= nil) then
+                local stored = {}
+                local expensive = {}
+
+                for _, e in pairs(CommF:InvokeServer("getInventoryFruits") or {}) do
+                    if type(e) == "table" and e.Name then
+                        stored[e.Name] = true
+                    end
+                end
+
+                for _, e in pairs(CommF:InvokeServer("GetFruits") or {}) do
+                    if type(e) == "table" and e.Price and e.Price >= 1000000 and e.Name then
+                        table.insert(expensive, e.Name)
+                    end
+                end
+
+                local current = CommF:InvokeServer("GetUnlockables") or {}
+                for _, fruitName in ipairs(expensive) do
+                    if stored[fruitName] and current.FlamingoAccess == nil then
+                        if not player.Backpack:FindFirstChild(fruitName) and not (player.Character and player.Character:FindFirstChild(fruitName)) then
+                            CommF:InvokeServer("F_", "LoadFruit", fruitName)
+                            task.wait(0.15)
+                        end
+                        CommF:InvokeServer("F_", "TalkTrevor", "1")
+                        CommF:InvokeServer("F_", "TalkTrevor", "2")
+                        CommF:InvokeServer("F_", "TalkTrevor", "3")
+                    end
+                end
+                return
+            end
+
+            ----------------------------------------------------------------
+            -- REDZ ThirdSea: nếu FlamingoAccess có rồi -> Don Swan.
+            ----------------------------------------------------------------
+            if level < 1500 or level >= 1850 then return end
+
+            -- REDZ: ThirdSea gọi DonSwan trước khi vào ZQuest.
+            -- Nếu Don Swan đang spawn -> đánh; nếu đã chết/không spawn -> tiếp tục ZQuest.
+            local donSwan = GetNearestEnemy("Don Swan")
+            if donSwan and donSwan:FindFirstChild("Humanoid") and donSwan.Humanoid.Health > 0 then
+                getgenv().CurrentTargetMob = donSwan
+                local donCF = GetFarmCFrame(donSwan)
+                if donCF then TweenToPos(donCF, getgenv().FlySpeed) end
+                AttackEnemy(donSwan)
+                return
+            end
+
+            ----------------------------------------------------------------
+            -- Sau Don Swan: REDZ kiểm tra ZQuestProgress.
+            ----------------------------------------------------------------
+            local zProgress = CommF:InvokeServer("ZQuestProgress", "Check")
+
+            -- Một số phiên bản trả số 1 khi ZQuest đã xong; một số trả bảng
+            -- có cờ KilledIndraBoss. Hỗ trợ cả hai để không kẹt.
+            if zProgress == 1 or (type(zProgress) == "table" and zProgress.KilledIndraBoss) then
+                CommF:InvokeServer("TravelZou")
+                return
+            end
+
+            local indraPos = Vector3.new(-26952, 21, 329)
+            local zQuestStart = CFrame.new(-1926, 13, 1738)
+
+            -- REDZ: nếu đã vào vùng Indra (<1200) thì ưu tiên đánh Indra.
+            if (root.Position - indraPos).Magnitude < 1200 then
+                local indra = GetNearestEnemy("rip_indra")
+                if indra and indra.PrimaryPart and indra.PrimaryPart.Position.Y > 0 then
+                    getgenv().CurrentTargetMob = indra
+                    local targetCF = GetFarmCFrame(indra)
+                    if targetCF then TweenToPos(targetCF, getgenv().FlySpeed) end
+                    AttackEnemy(indra)
+                else
+                    getgenv().CurrentTargetMob = nil
+                end
+                return
+            end
+
+            -- Chưa vào vùng Indra: tới điểm bắt đầu ZQuest rồi Begin.
+            if (root.Position - zQuestStart.Position).Magnitude >= 5 then
+                TweenToPos(zQuestStart, getgenv().FlySpeed)
+                return
+            end
+
+            CommF:InvokeServer("ZQuestProgress", "Begin")
+            task.wait(0.25)
+
+            -- Sau Begin, đi thẳng tới vùng Indra; vòng sau sẽ attack khi đã <1200.
+            TweenToPos(CFrame.new(indraPos + Vector3.new(0, 5, 0)), getgenv().FlySpeed)
         end)
     end
 end)
