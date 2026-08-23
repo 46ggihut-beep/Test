@@ -1,0 +1,1562 @@
+--// ===================================================================
+--//  TOPI HUB - SEA EVENT (Kaitun bản headless - KHÔNG UI)
+--//  Toàn bộ hành vi được điều khiển qua getgenv().Config
+--//  (đặt Config TRƯỚC khi loadstring script này)
+--// ===================================================================
+
+--// ================= CONFIG (đọc từ getgenv().Config, có fallback) =====
+local DefaultConfig = {
+    Settings = {
+        Team           = "Marines",       -- "Marines" | "Pirates"
+        SpeedTween     = 300,             -- 1-350
+        BoatSpeed      = 350,             -- 1-500
+        WeaponConfig   = "Melee",         -- "Melee" | "Sword" | "Blox Fruit" | "Gun"
+        AutoFarm       = true,            -- true = tự sail + farm liên tục
+        SelectBoatFarm = "Guardian",      -- tên thuyền sẽ mua
+        SelectSeaLevel = "6",             -- "1".."6" hoặc "Infinite"
+        AutoM1Fruit    = true,            -- true = dùng Blox Fruit khi farm SeaBeast/Boat
+    },
+    SeaEntityConfig = {
+        Shark                    = true,
+        Piranha                  = true,
+        SeaBeast                 = true,
+        TerrorShark               = true,
+        FishCrewMember            = true,
+        ["Haunted Crew Member"]  = true,
+        PirateGrandBrigade       = true,
+        FishBoat                 = true,
+    },
+    -- Skill sẽ bấm tuần tự cho từng loại vũ khí khi spam skill (SeaBeast/Boat, lúc AutoM1Fruit = false)
+    SkillConfig = {
+        Melee          = {"Z", "X", "C"},
+        Sword          = {"Z", "X", "C"},
+        ["Blox Fruit"] = {"Z", "X", "C", "V", "F"},
+        Gun            = {"Z", "X"},
+    },
+}
+
+local function DeepMergeDefault(default, user)
+    user = user or {}
+    for k, v in pairs(default) do
+        if type(v) == "table" then
+            user[k] = DeepMergeDefault(v, user[k])
+        elseif user[k] == nil then
+            user[k] = v
+        end
+    end
+    return user
+end
+
+getgenv().Config = DeepMergeDefault(DefaultConfig, getgenv().Config)
+local Config = getgenv().Config
+
+--// ================= SERVICES =================
+local Players             = game:GetService("Players")
+local RunService          = game:GetService("RunService")
+local TweenService        = game:GetService("TweenService")
+local ReplicatedStorage   = game:GetService("ReplicatedStorage")
+local VirtualUser         = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService    = game:GetService("UserInputService")
+local Workspace            = game:GetService("Workspace")
+local HttpService          = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+local lp     = player
+local plr    = player
+
+--// ================= AUTO TEAM =================
+-- Chỉ join nếu chưa ở team nào (Neutral hoặc nil)
+pcall(function()
+    local currentTeam = plr.Team
+    local teamName    = currentTeam and currentTeam.Name or ""
+    if teamName == "" or teamName == "Neutral" then
+        ReplicatedStorage.Remotes.CommF_:InvokeServer("SetTeam", Config.Settings.Team)
+    end
+end)
+
+--// ================= [1] FAST ATTACK (FastMax) - LUÔN BẬT =================
+loadstring(game:HttpGet("https://raw.githubusercontent.com/AnhDzaiScript/Setting/refs/heads/main/FastMax.lua"))()
+
+local function GetBladeHits_v1()
+    local targets = {}
+    local function GetDistance(v)
+        return (v.Position - game.Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+    end
+    for _, part in pairs({game.Workspace.Enemies, game.Workspace.Characters}) do
+        for _, v in pairs(part:GetChildren()) do
+            if v:FindFirstChild("HumanoidRootPart") and v:FindFirstChild("Head") and v:FindFirstChild("Humanoid") then
+                if GetDistance(v.HumanoidRootPart) < 60 then
+                    table.insert(targets, v)
+                end
+            end
+        end
+    end
+    return targets
+end
+
+local function AttackAll_v1()
+    local character = player.Character
+    if not character then return end
+    local equippedWeapon = character:FindFirstChild("EquippedWeapon")
+    if not equippedWeapon then return end
+    local enemies = GetBladeHits_v1()
+    if #enemies > 0 then
+        local netModule = game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Net")
+        netModule:WaitForChild("RE/RegisterAttack"):FireServer(-math.huge)
+        local args = {nil, {}}
+        for i, v in pairs(enemies) do
+            if not args[1] then args[1] = v.Head end
+            args[2][i] = {v, v.HumanoidRootPart}
+        end
+        netModule:WaitForChild("RE/RegisterHit"):FireServer(unpack(args))
+    end
+end
+
+spawn(function()
+    while task.wait() do
+        if getgenv().FastAttackEnabled then
+            AttackAll_v1()
+        end
+    end
+end)
+
+-- FastAttack OOP class
+local _FA_Modules        = ReplicatedStorage:WaitForChild("Modules")
+local _FA_Net            = _FA_Modules:WaitForChild("Net")
+local _FA_RegisterAttack = _FA_Net:WaitForChild("RE/RegisterAttack")
+local _FA_RegisterHit    = _FA_Net:WaitForChild("RE/RegisterHit")
+local _FA_ShootGunEvent  = _FA_Net:WaitForChild("RE/ShootGunEvent")
+local _FA_GunValidator   = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Validator2")
+
+local _FA_Config = {
+    AttackDistance   = 65,
+    AttackMobs       = true,
+    AttackPlayers    = true,
+    AttackCooldown   = 0.2,
+    ComboResetTime   = 0.3,
+    MaxCombo         = 4,
+    HitboxLimbs      = {"RightLowerArm","RightUpperArm","LeftLowerArm","LeftUpperArm","RightHand","LeftHand"},
+    AutoClickEnabled = true
+}
+
+local FastAttack = {}
+FastAttack.__index = FastAttack
+
+function FastAttack.new()
+    local self = setmetatable({
+        Debounce      = 0,
+        ComboDebounce = 0,
+        ShootDebounce = 0,
+        M1Combo       = 0,
+        EnemyRootPart = nil,
+        Connections   = {},
+        Overheat      = {Dragonstorm = {MaxOverheat=3, Cooldown=0, TotalOverheat=0, Distance=350, Shooting=false}},
+        ShootsPerTarget  = {["Dual Flintlock"] = 2},
+        SpecialShoots    = {["Skull Guitar"]="TAP", ["Bazooka"]="Position", ["Cannon"]="Position", ["Dragonstorm"]="Overheat"}
+    }, FastAttack)
+    pcall(function()
+        self.CombatFlags  = require(_FA_Modules.Flags).COMBAT_REMOTE_THREAD
+        self.ShootFunction = getupvalue(require(ReplicatedStorage.Controllers.CombatController).Attack, 9)
+        local LocalScript = player:WaitForChild("PlayerScripts"):FindFirstChildOfClass("LocalScript")
+        if LocalScript and getsenv then
+            self.HitFunction = getsenv(LocalScript)._G.SendHitsToServer
+        end
+    end)
+    return self
+end
+
+function FastAttack:IsEntityAlive(entity)
+    local h = entity and entity:FindFirstChild("Humanoid")
+    return h and h.Health > 0
+end
+
+function FastAttack:CheckStun(Character, Humanoid, ToolTip)
+    local Stun = Character:FindFirstChild("Stun")
+    local Busy = Character:FindFirstChild("Busy")
+    if Humanoid.Sit and (ToolTip == "Sword" or ToolTip == "Melee" or ToolTip == "Blox Fruit") then
+        return false
+    elseif Stun and Stun.Value > 0 or Busy and Busy.Value then
+        return false
+    end
+    return true
+end
+
+function FastAttack:GetBladeHits(Character, Distance)
+    local Position  = Character:GetPivot().Position
+    local BladeHits = {}
+    Distance = Distance or _FA_Config.AttackDistance
+    local function ProcessTargets(Folder)
+        for _, Enemy in ipairs(Folder:GetChildren()) do
+            if Enemy ~= Character and self:IsEntityAlive(Enemy) then
+                local BasePart = Enemy:FindFirstChild(_FA_Config.HitboxLimbs[math.random(#_FA_Config.HitboxLimbs)])
+                              or Enemy:FindFirstChild("HumanoidRootPart")
+                if BasePart and (Position - BasePart.Position).Magnitude <= Distance then
+                    if not self.EnemyRootPart then
+                        self.EnemyRootPart = BasePart
+                    else
+                        table.insert(BladeHits, {Enemy, BasePart})
+                    end
+                end
+            end
+        end
+    end
+    if _FA_Config.AttackMobs    then ProcessTargets(Workspace.Enemies)    end
+    if _FA_Config.AttackPlayers then ProcessTargets(Workspace.Characters) end
+    return BladeHits
+end
+
+function FastAttack:GetClosestEnemy(Character, Distance)
+    local BladeHits = self:GetBladeHits(Character, Distance)
+    local Closest, MinDistance = nil, math.huge
+    for _, Hit in ipairs(BladeHits) do
+        local Magnitude = (Character:GetPivot().Position - Hit[2].Position).Magnitude
+        if Magnitude < MinDistance then
+            MinDistance = Magnitude
+            Closest     = Hit[2]
+        end
+    end
+    return Closest
+end
+
+function FastAttack:GetCombo()
+    local Combo = (tick() - self.ComboDebounce) <= _FA_Config.ComboResetTime and self.M1Combo or 0
+    Combo = Combo >= _FA_Config.MaxCombo and 1 or Combo + 1
+    self.ComboDebounce = tick()
+    self.M1Combo       = Combo
+    return Combo
+end
+
+function FastAttack:ShootInTarget(TargetPosition)
+    local Character = player.Character
+    if not self:IsEntityAlive(Character) then return end
+    local Equipped = Character:FindFirstChildOfClass("Tool")
+    if not Equipped or Equipped.ToolTip ~= "Gun" then return end
+    local Cooldown  = Equipped:FindFirstChild("Cooldown") and Equipped.Cooldown.Value or 0.3
+    if (tick() - self.ShootDebounce) < Cooldown then return end
+    local ShootType = self.SpecialShoots[Equipped.Name] or "Normal"
+    if ShootType == "Position" or (ShootType == "TAP" and Equipped:FindFirstChild("RemoteEvent")) then
+        Equipped:SetAttribute("LocalTotalShots", (Equipped:GetAttribute("LocalTotalShots") or 0) + 1)
+        _FA_GunValidator:FireServer(self:GetValidator2())
+        if ShootType == "TAP" then
+            Equipped.RemoteEvent:FireServer("TAP", TargetPosition)
+        else
+            _FA_ShootGunEvent:FireServer(TargetPosition)
+        end
+        self.ShootDebounce = tick()
+    else
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true,  game, 1)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+        self.ShootDebounce = tick()
+    end
+end
+
+function FastAttack:GetValidator2()
+    local v1=getupvalue(self.ShootFunction,15)
+    local v2=getupvalue(self.ShootFunction,13)
+    local v3=getupvalue(self.ShootFunction,16)
+    local v4=getupvalue(self.ShootFunction,17)
+    local v5=getupvalue(self.ShootFunction,14)
+    local v6=getupvalue(self.ShootFunction,12)
+    local v7=getupvalue(self.ShootFunction,18)
+    local v8=v6*v2
+    local v9=(v5*v2+v6*v1)%v3
+    v9=(v9*v3+v8)%v4
+    v5=math.floor(v9/v3)
+    v6=v9-v5*v3
+    v7=v7+1
+    setupvalue(self.ShootFunction,15,v1)
+    setupvalue(self.ShootFunction,13,v2)
+    setupvalue(self.ShootFunction,16,v3)
+    setupvalue(self.ShootFunction,17,v4)
+    setupvalue(self.ShootFunction,14,v5)
+    setupvalue(self.ShootFunction,12,v6)
+    setupvalue(self.ShootFunction,18,v7)
+    return math.floor(v9/v4*16777215), v7
+end
+
+function FastAttack:UseNormalClick(Character, Humanoid, Cooldown)
+    self.EnemyRootPart = nil
+    local BladeHits = self:GetBladeHits(Character)
+    if self.EnemyRootPart then
+        _FA_RegisterAttack:FireServer(Cooldown)
+        if self.CombatFlags and self.HitFunction then
+            self.HitFunction(self.EnemyRootPart, BladeHits)
+        else
+            _FA_RegisterHit:FireServer(self.EnemyRootPart, BladeHits)
+        end
+    end
+end
+
+function FastAttack:UseFruitM1(Character, Equipped)
+    local MobAura, _ = get_Monster()
+    if not MobAura then return end
+    local LeftClickRemote = Equipped:FindFirstChild("LeftClickRemote")
+    if not LeftClickRemote then return end
+    Actived()
+    LeftClickRemote:FireServer(Vector3.new(0.01, -500, 0.01), 1, true)
+    LeftClickRemote:FireServer(false)
+end
+
+function FastAttack:Attack()
+    if not getgenv().FastAttackEnabled then return end
+    if not _FA_Config.AutoClickEnabled or (tick() - self.Debounce) < _FA_Config.AttackCooldown then return end
+    local Character = player.Character
+    if not Character or not self:IsEntityAlive(Character) then return end
+    local Humanoid  = Character.Humanoid
+    local Equipped  = Character:FindFirstChildOfClass("Tool")
+    if not Equipped then return end
+    local ToolTip   = Equipped.ToolTip
+    if not table.find({"Melee","Blox Fruit","Sword","Gun"}, ToolTip) then return end
+    local Cooldown  = Equipped:FindFirstChild("Cooldown") and Equipped.Cooldown.Value or _FA_Config.AttackCooldown
+    if not self:CheckStun(Character, Humanoid, ToolTip) then return end
+    local Combo = self:GetCombo()
+    Cooldown = Cooldown + (Combo >= _FA_Config.MaxCombo and 0.05 or 0)
+    self.Debounce = Combo >= _FA_Config.MaxCombo and ToolTip ~= "Gun" and (tick() + 0.05) or tick()
+    if ToolTip == "Blox Fruit" and Equipped:FindFirstChild("LeftClickRemote") then
+        self:UseFruitM1(Character, Equipped)
+    elseif ToolTip == "Gun" then
+        local Target = self:GetClosestEnemy(Character, 120)
+        if Target then self:ShootInTarget(Target.Position) end
+    else
+        self:UseNormalClick(Character, Humanoid, Cooldown)
+    end
+end
+
+local AttackInstance = FastAttack.new()
+table.insert(AttackInstance.Connections, RunService.Stepped:Connect(function()
+    AttackInstance:Attack()
+end))
+
+for _, v in pairs(getgc(true)) do
+    if typeof(v) == "function" and iscclosure(v) then
+        local name = debug.getinfo(v).name
+        if name == "Attack" or name == "attack" or name == "RegisterHit" then
+            hookfunction(v, function(...)
+                AttackInstance:Attack()
+                return v(...)
+            end)
+        end
+    end
+end
+
+-- Fast Attack v2
+local _FA2_Net            = game.ReplicatedStorage.Modules.Net
+local _FA2_RegisterHit    = _FA2_Net:WaitForChild("RE/RegisterHit")
+local _FA2_RegisterAttack = _FA2_Net:WaitForChild("RE/RegisterAttack")
+local _FA2_Funcs          = {}
+
+local function _FA2_GetAllBladeHits()
+    local hits = {}
+    for _, v in pairs(workspace.Enemies:GetChildren()) do
+        if v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart")
+        and v.Humanoid.Health > 0
+        and (v.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude <= 65 then
+            table.insert(hits, v)
+        end
+    end
+    return hits
+end
+
+local function _FA2_GetPlayerHits()
+    local hits = {}
+    for _, v in pairs(workspace.Characters:GetChildren()) do
+        if v.Name ~= player.Name and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart")
+        and v.Humanoid.Health > 0
+        and (v.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude <= 65 then
+            table.insert(hits, v)
+        end
+    end
+    return hits
+end
+
+function _FA2_Funcs:Attack()
+    local bladehits = {}
+    for _, v in pairs(_FA2_GetAllBladeHits()) do table.insert(bladehits, v) end
+    for _, v in pairs(_FA2_GetPlayerHits())   do table.insert(bladehits, v) end
+    if #bladehits == 0 then return end
+    local args = { [1]=nil, [2]={}, [4]="078da341" }
+    for r, v in pairs(bladehits) do
+        _FA2_RegisterAttack:FireServer(0)
+        if not args[1] then args[1] = v.Head end
+        args[2][r] = { [1]=v, [2]=v.HumanoidRootPart }
+    end
+    _FA2_RegisterHit:FireServer(unpack(args))
+end
+
+RunService.Heartbeat:Connect(function()
+    if not getgenv().FastAttackEnabled then return end
+    pcall(function() _FA2_Funcs:Attack() end)
+end)
+
+--// ================= [2] AUTO ATTACK M1 FRUIT - LUÔN BẬT =================
+_G.Seriality = false
+local autoAttackConnection = nil
+
+local function IsEntityAlive(entity)
+    if not entity then return false end
+    local humanoid = entity:FindFirstChild("Humanoid")
+    return humanoid and humanoid.Health > 0
+end
+
+local function GetEnemiesInRange(character, range)
+    local targets = {}
+    local playerPos = character:GetPivot().Position
+    for _, enemy in ipairs(Workspace.Enemies:GetChildren()) do
+        local rootPart = enemy:FindFirstChild("HumanoidRootPart")
+        if rootPart and IsEntityAlive(enemy) then
+            if (rootPart.Position - playerPos).Magnitude <= range then
+                table.insert(targets, enemy)
+            end
+        end
+    end
+    for _, otherPlayer in ipairs(Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local rootPart = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if rootPart and IsEntityAlive(otherPlayer.Character) then
+                if (rootPart.Position - playerPos).Magnitude <= range then
+                    table.insert(targets, otherPlayer.Character)
+                end
+            end
+        end
+    end
+    return targets
+end
+
+local function AttackNoCoolDown()
+    local character = player.Character
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local modules   = ReplicatedStorage:WaitForChild("Modules")
+    local net       = modules:WaitForChild("Net")
+    local hitEvent  = net:WaitForChild("RE/RegisterHit")
+
+    local targets = GetEnemiesInRange(character, 65)
+    if #targets == 0 then return end
+
+    local mainTarget = targets[1].Head or targets[1]:FindFirstChild("HumanoidRootPart")
+    local playerScripts = player:WaitForChild("PlayerScripts")
+    local localScript = playerScripts:FindFirstChildOfClass("LocalScript")
+    local timeout = 0
+    while not localScript and timeout < 5 do
+        task.wait(0.1)
+        timeout += 0.1
+        localScript = playerScripts:FindFirstChildOfClass("LocalScript")
+    end
+    if not localScript then return end
+    local hitFunction = nil
+    if getsenv then
+        local ok, env = pcall(getsenv, localScript)
+        if ok and env then
+            hitFunction = env._G and env._G.SendHitsToServer
+        end
+    end
+    local okFlags, combatRemoteThread = pcall(function()
+        return require(modules.Flags).COMBAT_REMOTE_THREAD or false
+    end)
+    if okFlags and combatRemoteThread and hitFunction then
+        hitFunction(mainTarget, targets)
+    elseif okFlags and not combatRemoteThread then
+        hitEvent:FireServer(mainTarget, targets)
+    end
+end
+
+local function get_Monster()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return false, nil end
+    local hrpPos = char.HumanoidRootPart.Position
+    for _, b in pairs(Workspace.Enemies:GetChildren()) do
+        local c = b:FindFirstChild("UpperTorso") or b:FindFirstChild("Head")
+        if b:FindFirstChild("HumanoidRootPart", true) and c then
+            if (c.Position - hrpPos).Magnitude <= 50 then
+                return true, c.Position
+            end
+        end
+    end
+    for _, d in pairs(Workspace.SeaBeasts:GetChildren()) do
+        if d:FindFirstChild("HumanoidRootPart") and d:FindFirstChild("Health") and d.Health.Value > 0 then
+            return true, d.HumanoidRootPart.Position
+        end
+    end
+    for _, d in pairs(Workspace.Enemies:GetChildren()) do
+        if d:FindFirstChild("Health") and d.Health.Value > 0 and d:FindFirstChild("VehicleSeat") then
+            return true, d.Engine.Position
+        end
+    end
+    return false, nil
+end
+
+local function Actived()
+    local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
+    if not tool then return end
+    local ok, conns = pcall(getconnections, tool.Activated)
+    if not ok then return end
+    for _, c in next, conns do
+        if typeof(c.Function) == "function" then
+            pcall(getupvalues, c.Function)
+        end
+    end
+end
+
+pcall(function()
+    local CameraShakerR = require(ReplicatedStorage.Util.CameraShaker)
+    CameraShakerR:Stop()
+end)
+
+local function StartAutoAttack()
+    if autoAttackConnection then return end
+    autoAttackConnection = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            if not _G.Seriality then return end
+            AttackNoCoolDown()
+            local Pretool = player.Character and player.Character:FindFirstChildOfClass("Tool")
+            if not Pretool then return end
+            local ToolTip = Pretool.ToolTip
+            -- Fire fruit không cần kiểm tra range MobAura
+            if ToolTip == "Blox Fruit" then
+                local LeftClickRemote = Pretool:FindFirstChild("LeftClickRemote")
+                if LeftClickRemote then
+                    Actived()
+                    LeftClickRemote:FireServer(Vector3.new(0.01, -500, 0.01), 1, true)
+                    LeftClickRemote:FireServer(false)
+                end
+            end
+        end)
+    end)
+end
+
+local function StopAutoAttack()
+    if autoAttackConnection then
+        autoAttackConnection:Disconnect()
+        autoAttackConnection = nil
+    end
+    _G.Seriality = false
+end
+
+--// ================= LUÔN BẬT ATTACK (thay AutoAttackFastToggle / AutoAttackToggle) =====
+getgenv().FastAttackEnabled = true
+_G.Seriality = true
+StartAutoAttack()
+
+--// ================= SPEED TWEEN / BOAT SPEED (thay dropdown, đọc từ Config) =====
+getgenv().TweenSpeed     = tonumber(Config.Settings.SpeedTween) or 300
+getgenv().BoatTweenSpeed = tonumber(Config.Settings.BoatSpeed)  or 350
+
+--// ================= AUTO BUSO LOOP =================
+getgenv().IsFarming = Config.Settings.AutoFarm and true or false
+spawn(function()
+    while task.wait(1) do
+        pcall(function()
+            if getgenv().IsFarming then
+                local char = player.Character
+                local hasBuso1 = char and char:FindFirstChild("HasBuso")
+                local hasBuso2 = char and char:FindFirstChild("Buso")
+                if not hasBuso1 and not hasBuso2 then
+                    ReplicatedStorage.Remotes.CommF_:InvokeServer("Buso")
+                end
+            end
+        end)
+    end
+end)
+
+--// ================= AUTO RACE V3/V4 - LUÔN CHẠY (thay toggle) =================
+_G.AutoRaceV3 = true
+_G.AutoRaceV4 = true
+
+spawn(function()
+    while wait() do
+        pcall(function()
+            if _G.AutoRaceV3 then
+                ReplicatedStorage.Remotes.CommE:FireServer("ActivateAbility")
+            end
+        end)
+    end
+end)
+
+spawn(function()
+    while wait(0.2) do
+        pcall(function()
+            if _G.AutoRaceV4 then
+                local raceEnergy = player.Character and player.Character:FindFirstChild("RaceEnergy")
+                if raceEnergy and raceEnergy.Value == 1 then
+                    VirtualInputManager:SendKeyEvent(true,  "Y", false, game)
+                    wait()
+                    VirtualInputManager:SendKeyEvent(false, "Y", false, game)
+                end
+            end
+        end)
+    end
+end)
+
+--// ===================================================================
+--//              SEA EVENT: CONSTANTS & DATA
+--// ===================================================================
+
+-- Vị trí điểm mua thuyền (cố định trên map)
+local BUY_BOAT_CFRAME = CFrame.new(-16927.451, 12, 433.864)
+
+-- CFrame các vùng biển
+local SEA_ZONE_CFRAMES = {
+    ["Lv 1"]        = CFrame.new(-21998.375,  35, -682.309143),
+    ["Lv 2"]        = CFrame.new(-26779.5215, 35, -822.858032),
+    ["Lv 3"]        = CFrame.new(-31171.957,  35, -2256.93774),
+    ["Lv 4"]        = CFrame.new(-34054.6875, 35, -2560.12012),
+    ["Lv 5"]        = CFrame.new(-38887.5547, 35, -2162.99023),
+    ["Lv 6"]        = CFrame.new(-44541.7617, 35, -1244.8584),
+    ["Lv Infinite"] = CFrame.new(-10000000,   35,  37016.25),
+}
+
+-- Map genv flag → thông tin mob
+-- isBoat = true  → kiểm tra b.Health + b.VehicleSeat, dùng b.Engine làm root
+-- isSeaBeast = true → tìm trong workspace.SeaBeasts, kiểm tra b.Health.Value
+local SEA_MOB_MAP = {
+    AutoSharkEnabled       = { names = {"Shark"},                                folder = "Enemies"   },
+    AutoPiranhaEnabled     = { names = {"Piranha"},                              folder = "Enemies"   },
+    AutoTerrorSharkEnabled = { names = {"Terrorshark"},                          folder = "Enemies"   },
+    AutoFishCrewEnabled    = { names = {"Fish Crew Member"},                     folder = "Enemies"   },
+    AutoHauntedCrewEnabled = { names = {"Haunted Crew Member"},                  folder = "Enemies"   },
+    AutoPirateGrandEnabled = { names = {"PirateGrandBrigade","PirateBrigade"},   folder = "Enemies",   isBoat = true },
+    AutoFishBoatEnabled    = { names = {"FishBoat"},                             folder = "Enemies",   isBoat = true },
+    AutoSeaBeastEnabled    = { names = {"SeaBeast1","SeaBeast"},                 folder = "SeaBeasts", isSeaBeast = true },
+}
+
+--// ===================================================================
+--//              SEA EVENT: UTILITY FUNCTIONS
+--// ===================================================================
+
+-- ─── Noclip ───────────────────────────────────────────────────────────
+local noclipConn = nil
+local function SetNoclip(enabled)
+    if enabled then
+        if noclipConn then return end
+        noclipConn = RunService.Stepped:Connect(function()
+            local char = player.Character
+            if not char then return end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end)
+    else
+        if noclipConn then noclipConn:Disconnect() noclipConn = nil end
+    end
+end
+
+-- ─── BodyVelocity (giữ player lơ lửng – force re-set mỗi Heartbeat) ──
+local bvLoopConn = nil
+local function SetBodyVelocity(enabled)
+    if enabled then
+        if bvLoopConn then return end
+        bvLoopConn = RunService.Heartbeat:Connect(function()
+            local char = player.Character
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            local bv = hrp:FindFirstChild("SeaFarmBV")
+            if not bv then
+                bv        = Instance.new("BodyVelocity")
+                bv.Name   = "SeaFarmBV"
+                bv.Parent = hrp
+            end
+            bv.Velocity = Vector3.new(0, 0, 0)
+            bv.MaxForce = Vector3.new(0, math.huge, 0)
+            bv.P        = 9999
+        end)
+    else
+        if bvLoopConn then bvLoopConn:Disconnect() bvLoopConn = nil end
+        local char = player.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local bv = hrp:FindFirstChild("SeaFarmBV")
+                if bv then bv:Destroy() end
+            end
+        end
+    end
+end
+
+-- ─── Trang bị weapon theo tên ─────────────────────────────────────────
+local function EquipWeapon(weaponName)
+    if not weaponName then return end
+    local char = player.Character
+    if not char then return end
+    local equipped = char:FindFirstChildOfClass("Tool")
+    if equipped and equipped.Name == weaponName then return end
+    local tool = player.Backpack:FindFirstChild(weaponName)
+    if tool then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum:EquipTool(tool) end
+    end
+end
+
+-- ─── Weapon loop (dùng Heartbeat để bám sát, dừng khi stopFn() = true) ─
+local weaponLoopConn = nil
+local function StartWeaponLoop(getWeaponFn)
+    if weaponLoopConn then weaponLoopConn:Disconnect() weaponLoopConn = nil end
+    local lastEquip = 0
+    weaponLoopConn = RunService.Heartbeat:Connect(function()
+        if (tick() - lastEquip) < 0.15 then return end
+        lastEquip = tick()
+        pcall(function()
+            local wName = getWeaponFn()
+            if wName then EquipWeapon(wName) end
+        end)
+    end)
+end
+
+local function StopWeaponLoop()
+    if weaponLoopConn then weaponLoopConn:Disconnect() weaponLoopConn = nil end
+end
+
+-- Mob nào dùng weapon từ Config (melee/sword/gun/fruit)
+local SEA_MELEE_MOB_NAMES = {
+    ["Shark"]               = true,
+    ["Piranha"]             = true,
+    ["TerrorShark"]         = true,
+    ["FishCrewMember"]      = true,
+    ["HauntedCrewMember"]   = true,
+}
+
+-- ─── Lấy tên weapon cần equip cho mob ─────────────────────────────────
+local function GetWeaponForMob(genvKey)
+    local data = SEA_MOB_MAP[genvKey]
+    if not data then return nil end
+    if (data.isSeaBeast or data.isBoat) and getgenv().AutoM1FruitEnabled then
+        local char = player.Character
+        if char then
+            for _, v in ipairs(player.Backpack:GetChildren()) do
+                if v.ToolTip == "Blox Fruit" then return v.Name end
+            end
+            local eq = char:FindFirstChildOfClass("Tool")
+            if eq and eq.ToolTip == "Blox Fruit" then return eq.Name end
+        end
+        return nil
+    end
+    if SEA_MELEE_MOB_NAMES[genvKey] or
+       (data and not data.isBoat and not data.isSeaBeast) then
+        return _G.SelectWeapon
+    end
+    return nil
+end
+
+-- ─── vim1 alias + weaponSc ────────────────────────────────────────────
+local vim1 = VirtualInputManager
+
+-- Trang bị weapon theo ToolTip
+local function weaponSc(tooltip)
+    local char = player.Character
+    if not char then return end
+    local eq = char:FindFirstChildOfClass("Tool")
+    if eq and eq.ToolTip == tooltip then return end -- đã đúng
+    for _, v in ipairs(player.Backpack:GetChildren()) do
+        if v.ToolTip == tooltip then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum:EquipTool(v) end
+            return
+        end
+    end
+end
+
+-- ─── Useskills: trang bị + bấm skill (skill lấy từ Config.SkillConfig) ─
+local function Useskills(weapon, skill)
+    weaponSc(weapon)
+    if skill then
+        vim1:SendKeyEvent(true,  skill, false, game)
+        vim1:SendKeyEvent(false, skill, false, game)
+    end
+end
+
+local WEAPON_TYPES = {"Melee", "Sword", "Blox Fruit", "Gun"}
+
+-- ─── Skill Spam Loop cho sea beast / boat (không bật Auto M1 Fruit) ───
+-- Cứ 0.3s đổi weapon ngẫu nhiên (không lặp weapon trước), spam skill theo Config.SkillConfig
+local skillSpamThread = nil
+local function StartSkillSpamLoop(stopFn)
+    if skillSpamThread then
+        task.cancel(skillSpamThread)
+        skillSpamThread = nil
+    end
+    skillSpamThread = task.spawn(function()
+        local prevWeapon = nil
+        while not stopFn() do
+            if getgenv().AutoM1FruitEnabled then
+                weaponSc("Blox Fruit")
+                task.wait(0.1)
+            else
+                local available = {}
+                for _, w in ipairs(WEAPON_TYPES) do
+                    if w ~= prevWeapon then
+                        table.insert(available, w)
+                    end
+                end
+                local chosenWeapon = available[math.random(#available)]
+                prevWeapon = chosenWeapon
+                local skills = Config.SkillConfig[chosenWeapon] or {"Z"}
+
+                local deadline = tick() + 0.3
+                local si = 1
+                while not stopFn() and tick() < deadline do
+                    if getgenv().AutoM1FruitEnabled then break end
+                    local sk = skills[si]
+                    pcall(Useskills, chosenWeapon, sk)
+                    si = (si % #skills) + 1
+                    task.wait(0.1)
+                end
+            end
+        end
+    end)
+end
+
+local function StopSkillSpamLoop()
+    if skillSpamThread then
+        task.cancel(skillSpamThread)
+        skillSpamThread = nil
+    end
+end
+
+-- ─── Weapon selection loop (cập nhật _G.SelectWeapon liên tục) ────────
+local Sec = 0.15
+spawn(function()
+    while task.wait(Sec) do
+        pcall(function()
+            local tooltip = _G.ChooseWP
+            if not tooltip then return end
+            for _, v in ipairs(player.Backpack:GetChildren()) do
+                if v.ToolTip == tooltip then
+                    _G.SelectWeapon = v.Name
+                    break
+                end
+            end
+        end)
+    end
+end)
+
+local function GetBoatRoot(boat)
+    if not boat then return nil end
+    return boat:FindFirstChild("Engine")
+        or boat.PrimaryPart
+        or boat:FindFirstChildWhichIsA("VehicleSeat", true)
+end
+
+-- ─── Noclip thuyền (loop Stepped) ────────────────────────────────────
+local boatNoclipConn = nil
+local function SetBoatNoclip(boat, enabled)
+    if enabled then
+        if boatNoclipConn then boatNoclipConn:Disconnect() boatNoclipConn = nil end
+        boatNoclipConn = RunService.Stepped:Connect(function()
+            if not boat or not boat.Parent then
+                boatNoclipConn:Disconnect() boatNoclipConn = nil
+                return
+            end
+            for _, p in ipairs(boat:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
+            end
+        end)
+    else
+        if boatNoclipConn then boatNoclipConn:Disconnect() boatNoclipConn = nil end
+    end
+end
+
+-- ─── BodyVelocity trên thuyền (chống chìm khi tween) ─────────────────
+local boatBvConn = nil
+local function SetBoatBodyVelocity(boat, enabled)
+    if enabled then
+        if boatBvConn then boatBvConn:Disconnect() boatBvConn = nil end
+        boatBvConn = RunService.Heartbeat:Connect(function()
+            if not boat or not boat.Parent then
+                boatBvConn:Disconnect() boatBvConn = nil
+                return
+            end
+            local root = GetBoatRoot(boat)
+            if not root then return end
+            local bv = root:FindFirstChild("SeaBoatBV")
+            if not bv then
+                bv           = Instance.new("BodyVelocity")
+                bv.Name      = "SeaBoatBV"
+                bv.Velocity  = Vector3.new(0, 0, 0)
+                bv.MaxForce  = Vector3.new(0, math.huge, 0)
+                bv.P         = 9999
+                bv.Parent    = root
+            end
+        end)
+    else
+        if boatBvConn then boatBvConn:Disconnect() boatBvConn = nil end
+        if boat and boat.Parent then
+            local root = GetBoatRoot(boat)
+            if root then
+                local bv = root:FindFirstChild("SeaBoatBV")
+                if bv then bv:Destroy() end
+            end
+        end
+    end
+end
+
+-- ─── Tween THUYỀN tới CFrame dùng Heartbeat PivotTo + BV + Noclip ───
+local activeBoatTweenConn = nil
+local boatTweenRunning    = false
+
+local function TweenBoatTo(boat, targetCF, callback)
+    boatTweenRunning = false
+    if activeBoatTweenConn then
+        activeBoatTweenConn:Disconnect()
+        activeBoatTweenConn = nil
+    end
+
+    if not boat or not boat.Parent then
+        if callback then callback() end return
+    end
+
+    SetBoatNoclip(boat, true)
+    SetBoatBodyVelocity(boat, true)
+
+    local startCF   = boat:GetPivot()
+    local dist      = (startCF.Position - targetCF.Position).Magnitude
+    local speed     = getgenv().BoatTweenSpeed or 350
+    local duration  = math.max(0.05, dist / speed)
+    local startTime = tick()
+
+    boatTweenRunning = true
+    activeBoatTweenConn = RunService.Heartbeat:Connect(function()
+        if not boatTweenRunning or not boat or not boat.Parent then
+            if activeBoatTweenConn then
+                activeBoatTweenConn:Disconnect()
+                activeBoatTweenConn = nil
+            end
+            return
+        end
+        local alpha  = math.clamp((tick() - startTime) / duration, 0, 1)
+        local newCF  = startCF:Lerp(targetCF, alpha)
+        pcall(function() boat:PivotTo(newCF) end)
+        if alpha >= 1 then
+            boatTweenRunning = false
+            activeBoatTweenConn:Disconnect()
+            activeBoatTweenConn = nil
+            if callback then callback() end
+        end
+    end)
+end
+
+local function TweenBoatToSync(boat, targetCF)
+    local done = false
+    TweenBoatTo(boat, targetCF, function() done = true end)
+    while not done and boatTweenRunning do task.wait() end
+end
+
+local function CancelBoatTween()
+    boatTweenRunning = false
+    if activeBoatTweenConn then
+        activeBoatTweenConn:Disconnect()
+        activeBoatTweenConn = nil
+    end
+end
+
+-- ─── Tween tới CFrame (bay theo đường thẳng, speed = TweenSpeed stud/s) ─
+local activeTween = nil
+local function TweenTo(targetCF, callback)
+    if activeTween then activeTween:Cancel() activeTween = nil end
+    local char = player.Character
+    if not char then if callback then callback() end return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then if callback then callback() end return end
+
+    SetBodyVelocity(true)
+
+    local dist     = (hrp.Position - targetCF.Position).Magnitude
+    local speed    = getgenv().TweenSpeed or 300
+    local duration = math.max(0.05, dist / speed)
+
+    local tw = TweenService:Create(
+        hrp,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+        { CFrame = targetCF }
+    )
+    activeTween = tw
+    tw:Play()
+    tw.Completed:Connect(function(state)
+        if state == Enum.PlaybackState.Completed then
+            activeTween = nil
+            if callback then callback() end
+        end
+    end)
+    return tw
+end
+
+local function TweenToSync(targetCF)
+    local done = false
+    TweenTo(targetCF, function() done = true end)
+    while not done do task.wait() end
+end
+
+-- ─── Tìm thuyền đã chọn trong workspace.Boats ───────────────────────
+local function GetNearestBoat()
+    local char = player.Character
+    if not char then return nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local boatsFolder = workspace:FindFirstChild("Boats")
+    if not boatsFolder then return nil end
+
+    local boatName    = _G.SelectedBoat or "Guardian"
+    local MAX_BOAT_RANGE = 3500
+    local bestBoat, bestDist = nil, math.huge
+
+    for _, boat in ipairs(boatsFolder:GetChildren()) do
+        if boat.Name == boatName then
+            local seat = boat:FindFirstChildWhichIsA("VehicleSeat", true)
+            if seat then
+                local dist = (seat.Position - hrp.Position).Magnitude
+                if dist < bestDist and dist <= MAX_BOAT_RANGE then
+                    bestDist = dist
+                    bestBoat = boat
+                end
+            end
+        end
+    end
+    return bestBoat
+end
+
+-- ─── Kiểm tra player đang Sit ─────────────────────────────────────────
+local function IsOnBoat()
+    local char = player.Character
+    if not char then return false end
+    local hum = char:FindFirstChild("Humanoid")
+    return hum and hum.Sit
+end
+
+-- ─── Ngồi lên thuyền ──────────────────────────────────────────────────
+local function SitOnBoat(boat)
+    if not boat then return false end
+    local seat = boat:FindFirstChildWhichIsA("VehicleSeat", true)
+    if not seat then return false end
+    local char = player.Character
+    if not char then return false end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    TweenToSync(seat.CFrame * CFrame.new(0, 2.5, 0))
+    task.wait(0.3)
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then seat:Sit(hum) end
+    task.wait(0.6)
+    return IsOnBoat()
+end
+
+-- ─── Jump khỏi thuyền ─────────────────────────────────────────────────
+local lastJumpTime = 0
+local function PerformJump(bypass)
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum then return end
+    local now = tick()
+    if not bypass and (now - lastJumpTime) < 1 then return end
+    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    lastJumpTime = now
+end
+
+-- ─── Reset player (HP = 0) - giữ logic, luôn bật (thay ResetCharacterToggle) ─
+local function ResetPlayer()
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then hum.Health = 0 end
+end
+getgenv().ResetCharacterEnabled = true
+
+-- ─── Kiểm tra có mob toggle nào đang bật không ───────────────────────
+local function IsAnyMobToggleOn()
+    for genvKey in pairs(SEA_MOB_MAP) do
+        if getgenv()[genvKey] then return true end
+    end
+    return false
+end
+
+-- ─── Tìm mob sea gần nhất đang bật toggle (trong 2000 stud) ──────────
+local function FindNearestSeaMob()
+    local char = player.Character
+    if not char then return nil, nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil, nil end
+
+    local bestDist, bestMob, bestKey = math.huge, nil, nil
+
+    for genvKey, data in pairs(SEA_MOB_MAP) do
+        if getgenv()[genvKey] then
+            local folder = workspace:FindFirstChild(data.folder)
+            if folder then
+                for _, mob in ipairs(folder:GetChildren()) do
+                    local nameMatch = false
+                    for _, n in ipairs(data.names) do
+                        if mob.Name == n then nameMatch = true break end
+                    end
+                    if nameMatch then
+                        local alive = false
+                        local rootPos = nil
+                        if data.isSeaBeast then
+                            local hp = mob:FindFirstChild("Health")
+                            alive = hp and hp.Value > 0
+                            local rp = mob:FindFirstChild("HumanoidRootPart")
+                            rootPos = rp and rp.Position
+                        elseif data.isBoat then
+                            local hp   = mob:FindFirstChild("Health")
+                            local vs   = mob:FindFirstChild("VehicleSeat")
+                            alive = hp and hp.Value > 0 and vs ~= nil
+                            local eng = mob:FindFirstChild("Engine")
+                            rootPos = eng and eng.Position
+                        else
+                            local hum = mob:FindFirstChild("Humanoid")
+                            alive = hum and hum.Health > 0
+                            local rp = mob:FindFirstChild("HumanoidRootPart")
+                            rootPos = rp and rp.Position
+                        end
+
+                        if alive and rootPos then
+                            local dist = (rootPos - hrp.Position).Magnitude
+                            if dist <= 2000 and dist < bestDist then
+                                bestDist = dist
+                                bestMob  = mob
+                                bestKey  = genvKey
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestMob, bestKey
+end
+
+-- ─── Kiểm tra mob còn sống ────────────────────────────────────────────
+local function IsMobAlive(mob, genvKey)
+    if not mob or not mob.Parent then return false end
+    local data = SEA_MOB_MAP[genvKey]
+    if not data then return false end
+    if data.isSeaBeast then
+        local hp = mob:FindFirstChild("Health")
+        return hp and hp.Value > 0
+    elseif data.isBoat then
+        local hp = mob:FindFirstChild("Health")
+        return hp and hp.Value > 0 and mob:FindFirstChild("VehicleSeat") ~= nil
+    else
+        local hum = mob:FindFirstChild("Humanoid")
+        return hum and hum.Health > 0
+    end
+end
+
+-- ─── Lấy CFrame farm chính xác theo từng loại mob ────────────────────
+local function GetMobFarmCFrame(mob, genvKey)
+    local data = SEA_MOB_MAP[genvKey]
+    if not data then return nil end
+
+    if data.isBoat then
+        local eng = mob:FindFirstChild("Engine")
+        if not eng then return nil end
+        if mob.Name == "PirateGrandBrigade" or mob.Name == "PirateBrigade" then
+            local offset = (mob.Name == "PirateGrandBrigade")
+                and CFrame.new(0, -50, -50)
+                or  CFrame.new(0, -30, -10)
+            return eng.CFrame * offset
+        elseif mob.Name == "FishBoat" then
+            return eng.CFrame * CFrame.new(0, -50, -25)
+        else
+            return eng.CFrame * CFrame.new(0, 5, 0)
+        end
+    elseif data.isSeaBeast then
+        local rp = mob:FindFirstChild("HumanoidRootPart")
+        if not rp then return nil end
+        return CFrame.new(rp.Position.X, 35, rp.Position.Z)
+    else
+        local rp = mob:FindFirstChild("HumanoidRootPart")
+        if not rp then return nil end
+        local wp = _G.ChooseWP or "Melee"
+        local yOff
+        if wp == "Melee" or wp == "Sword" then
+            yOff = 40
+        elseif wp == "Blox Fruit" then
+            yOff = 15
+        else
+            yOff = 70  -- Gun
+        end
+        return CFrame.new(rp.Position.X, rp.Position.Y + yOff, rp.Position.Z)
+    end
+end
+
+--// ===================================================================
+--//              SEA EVENT: MAIN STATE MACHINE
+--// ===================================================================
+
+-- ── Áp dụng cấu hình mob săn từ Config.SeaEntityConfig (thay SeaEntityDropdown) ──
+getgenv().AutoSharkEnabled       = Config.SeaEntityConfig.Shark               and true or false
+getgenv().AutoPiranhaEnabled     = Config.SeaEntityConfig.Piranha             and true or false
+getgenv().AutoTerrorSharkEnabled = Config.SeaEntityConfig.TerrorShark         and true or false
+getgenv().AutoFishCrewEnabled    = Config.SeaEntityConfig.FishCrewMember      and true or false
+getgenv().AutoHauntedCrewEnabled = Config.SeaEntityConfig["Haunted Crew Member"] and true or false
+getgenv().AutoPirateGrandEnabled = Config.SeaEntityConfig.PirateGrandBrigade  and true or false
+getgenv().AutoFishBoatEnabled    = Config.SeaEntityConfig.FishBoat            and true or false
+getgenv().AutoSeaBeastEnabled    = Config.SeaEntityConfig.SeaBeast            and true or false
+
+-- ── Weapon / Boat / Sea Level / AutoM1Fruit từ Config (thay dropdown) ──
+_G.ChooseWP = Config.Settings.WeaponConfig or "Melee"
+_G.SelectedBoat = Config.Settings.SelectBoatFarm or "Guardian"
+
+local function ResolveSeaLevel(v)
+    v = tostring(v or "1")
+    if v:lower():find("infin") then return "Lv Infinite" end
+    local n = tonumber(v)
+    if n and SEA_ZONE_CFRAMES["Lv " .. n] then return "Lv " .. n end
+    return "Lv 1"
+end
+_G.DangerSc = ResolveSeaLevel(Config.Settings.SelectSeaLevel)
+
+getgenv().AutoM1FruitEnabled = Config.Settings.AutoM1Fruit and true or false
+
+-- ── AutoSail = AutoFarm (thay AutoSailToggle) ──
+getgenv().AutoSailEnabled = Config.Settings.AutoFarm and true or false
+
+local seaFarmRunning = false
+local seaFarmThread  = nil
+
+local function StopSeaFarm()
+    seaFarmRunning = false
+    if seaFarmThread then task.cancel(seaFarmThread) seaFarmThread = nil end
+    SetNoclip(false)
+    SetBodyVelocity(false)
+    StopWeaponLoop()
+    StopSkillSpamLoop()
+    if activeTween then activeTween:Cancel() activeTween = nil end
+    CancelBoatTween()
+    if boatNoclipConn then boatNoclipConn:Disconnect() boatNoclipConn = nil end
+    if boatBvConn then boatBvConn:Disconnect() boatBvConn = nil end
+end
+
+-- ─── Vòng lặp chính ───────────────────────────────────────────────────
+local function SeaFarmLoop()
+    seaFarmRunning = true
+    SetNoclip(true)
+    SetBodyVelocity(true)
+
+    while seaFarmRunning do
+        if not getgenv().AutoSailEnabled and not IsAnyMobToggleOn() then
+            StopSeaFarm()
+            break
+        end
+
+        local ok, err = pcall(function()
+            local char = player.Character
+            if not char then task.wait(1) return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then task.wait(1) return end
+
+            local autoSail     = getgenv().AutoSailEnabled
+            local anyMobToggle = IsAnyMobToggleOn()
+
+            if not autoSail and not anyMobToggle then
+                task.wait(0.5)
+                return
+            end
+
+            -- ══════════════════════════════════════════════════════════
+            -- CHẾ ĐỘ CHỈ MOB TOGGLE (không có AutoSail):
+            -- Tìm mob ngay tại chỗ, nếu không có → không làm gì.
+            -- Nếu có → farm rồi dừng (không loop mua thuyền, không sail).
+            -- ══════════════════════════════════════════════════════════
+            if anyMobToggle and not autoSail then
+                local mob, genvKey = FindNearestSeaMob()
+                if not mob then
+                    task.wait(0.5)
+                    return
+                end
+
+                local data2 = SEA_MOB_MAP[genvKey]
+                local isBoatOrBeast2 = data2 and (data2.isBoat or data2.isSeaBeast)
+
+                SetNoclip(true)
+                SetBodyVelocity(true)
+
+                if isBoatOrBeast2 then
+                    local alive2 = true
+                    StartSkillSpamLoop(function()
+                        return not (seaFarmRunning and alive2
+                            and getgenv().AutoSailEnabled == false
+                            and IsAnyMobToggleOn())
+                    end)
+
+                    local timeout = 0
+                    while seaFarmRunning and getgenv().AutoSailEnabled == false
+                        and IsAnyMobToggleOn()
+                        and IsMobAlive(mob, genvKey) do
+                        local tgtCF = GetMobFarmCFrame(mob, genvKey)
+                        if tgtCF then TweenTo(tgtCF) end
+                        task.wait(0.1)
+                        timeout += 0.1
+                        if timeout > 60 then break end
+                    end
+
+                    alive2 = false
+                    StopSkillSpamLoop()
+                else
+                    StartWeaponLoop(function() return GetWeaponForMob(genvKey) end)
+
+                    local timeout = 0
+                    while seaFarmRunning and getgenv().AutoSailEnabled == false
+                        and IsAnyMobToggleOn()
+                        and IsMobAlive(mob, genvKey) do
+                        local tgtCF = GetMobFarmCFrame(mob, genvKey)
+                        if tgtCF then TweenTo(tgtCF) end
+                        task.wait(0.1)
+                        timeout += 0.1
+                        if timeout > 60 then break end
+                    end
+
+                    StopWeaponLoop()
+                end
+
+                SetNoclip(false)
+                SetBodyVelocity(false)
+                if activeTween then activeTween:Cancel() activeTween = nil end
+
+                return
+            end
+
+            -- ══════════════════════════════════════════════════════════
+            -- CHẾ ĐỘ AUTOSAIL (có thể kết hợp mob toggle):
+            -- BƯỚC 1: Mua thuyền nếu không có trong 3500 stud
+            -- ══════════════════════════════════════════════════════════
+            local myBoat = GetNearestBoat()
+
+            if not myBoat then
+                if getgenv().ResetCharacterEnabled then
+                    ResetPlayer()
+                    task.wait(6)
+                    return
+                else
+                    TweenToSync(BUY_BOAT_CFRAME)
+                    if not seaFarmRunning then return end
+                    task.wait(0.5)
+                    pcall(function()
+                        ReplicatedStorage.Remotes.CommF_:InvokeServer("BuyBoat", _G.SelectedBoat)
+                    end)
+                    task.wait(1.5)
+                    myBoat = GetNearestBoat()
+                    if not myBoat then task.wait(2) return end
+                end
+            end
+
+            -- ══════════════════════════════════════════════════════════
+            -- BƯỚC 2: Ngồi lên thuyền (nếu chưa ngồi)
+            -- ══════════════════════════════════════════════════════════
+            if not IsOnBoat() then
+                local sat = SitOnBoat(myBoat)
+                if not sat then task.wait(1) return end
+            end
+            if not seaFarmRunning then return end
+
+            -- ══════════════════════════════════════════════════════════
+            -- BƯỚC 3: Tween THUYỀN ra biển đã chọn (Y boat luôn = 100 so với mặt nước)
+            -- Nếu toggle mob bật: kiểm tra mob mỗi bước, interrupt khi gặp
+            -- ══════════════════════════════════════════════════════════
+            local targetSeaCF = SEA_ZONE_CFRAMES[_G.DangerSc] or SEA_ZONE_CFRAMES["Lv 1"]
+
+            local boatRoot = GetBoatRoot(myBoat)
+            if not boatRoot then task.wait(1) return end
+
+            SetBoatNoclip(myBoat, true)
+            SetBoatBodyVelocity(myBoat, true)
+
+            local startPos  = boatRoot.Position
+            local endPos    = targetSeaCF.Position
+            local totalDist = (endPos - startPos).Magnitude
+            local steps     = math.max(1, math.ceil(totalDist / 500))
+            local interrupted = false
+
+            for i = 1, steps do
+                if not seaFarmRunning then
+                    CancelBoatTween()
+                    SetBoatNoclip(myBoat, false)
+                    SetBoatBodyVelocity(myBoat, false)
+                    return
+                end
+                if not IsOnBoat() then break end
+
+                local t       = i / steps
+                local stepPos = startPos + (endPos - startPos) * t
+                local stepY   = 100 -- Y boat cố định = 100 so với mặt nước (0)
+                local stepCF  = CFrame.new(stepPos.X, stepY, stepPos.Z)
+
+                TweenBoatToSync(myBoat, stepCF)
+                if not seaFarmRunning then
+                    CancelBoatTween()
+                    SetBoatNoclip(myBoat, false)
+                    SetBoatBodyVelocity(myBoat, false)
+                    return
+                end
+
+                if IsAnyMobToggleOn() then
+                    local mob, _ = FindNearestSeaMob()
+                    if mob then
+                        interrupted = true
+                        break
+                    end
+                end
+            end
+
+            CancelBoatTween()
+            SetBoatNoclip(myBoat, false)
+            SetBoatBodyVelocity(myBoat, false)
+
+            if not seaFarmRunning then return end
+
+            -- ══════════════════════════════════════════════════════════
+            -- BƯỚC 4: Có mob → nhảy khỏi thuyền → farm bám theo mob
+            -- ══════════════════════════════════════════════════════════
+            if interrupted and IsAnyMobToggleOn() then
+                PerformJump(true)
+                task.wait(0.6)
+
+                SetNoclip(true)
+                SetBodyVelocity(true)
+
+                while seaFarmRunning and IsAnyMobToggleOn() do
+                    local mob, genvKey = FindNearestSeaMob()
+                    if not mob then break end
+
+                    local data = SEA_MOB_MAP[genvKey]
+                    local isBoatOrBeast = data and (data.isBoat or data.isSeaBeast)
+
+                    if isBoatOrBeast then
+                        local alive = true
+                        StartSkillSpamLoop(function()
+                            return not (seaFarmRunning and alive and IsAnyMobToggleOn())
+                        end)
+
+                        local timeout = 0
+                        while seaFarmRunning and IsMobAlive(mob, genvKey) do
+                            local tgtCF = GetMobFarmCFrame(mob, genvKey)
+                            if tgtCF then TweenTo(tgtCF) end
+                            task.wait(0.1)
+                            timeout += 0.1
+                            if timeout > 60 then break end
+                        end
+
+                        alive = false
+                        StopSkillSpamLoop()
+                    else
+                        StartWeaponLoop(function() return GetWeaponForMob(genvKey) end)
+
+                        local timeout = 0
+                        while seaFarmRunning and IsMobAlive(mob, genvKey) do
+                            local tgtCF = GetMobFarmCFrame(mob, genvKey)
+                            if tgtCF then TweenTo(tgtCF) end
+                            task.wait(0.1)
+                            timeout += 0.1
+                            if timeout > 60 then break end
+                        end
+
+                        StopWeaponLoop()
+                    end
+
+                    task.wait(0.2)
+                end
+
+                SetNoclip(false)
+                SetBodyVelocity(false)
+                if activeTween then activeTween:Cancel() activeTween = nil end
+
+                if not seaFarmRunning then return end
+
+                -- ══════════════════════════════════════════════════════
+                -- BƯỚC 5: Hết mob → quay về thuyền và tiếp tục ra biển
+                -- ══════════════════════════════════════════════════════
+                myBoat = GetNearestBoat()
+                if myBoat then
+                    local sat = SitOnBoat(myBoat)
+                    if not sat then task.wait(1) end
+                else
+                    if getgenv().ResetCharacterEnabled then
+                        ResetPlayer()
+                    end
+                    task.wait(4)
+                end
+            else
+                -- AutoSail thuần (không có mob): đã tới vùng biển, chờ mob spawn
+                task.wait(3)
+            end
+        end)
+
+        if not ok then
+            task.wait(1)
+        end
+    end
+    seaFarmThread = nil
+end
+
+-- ─── Phát hiện thuyền vỡ khi đang farm → reset nhân vật để lặp lại farm ──
+spawn(function()
+    while true do
+        task.wait(1)
+        if not seaFarmRunning then continue end
+        pcall(function()
+            if IsOnBoat() then
+                local myBoat = GetNearestBoat()
+                if not myBoat then
+                    if getgenv().ResetCharacterEnabled then
+                        ResetPlayer()
+                        -- CharacterAdded sẽ handle restart
+                    end
+                    task.wait(4)
+                end
+            end
+        end)
+    end
+end)
+
+-- ─── Sau khi respawn: cancel loop cũ → tween buy → buy → restart loop ──
+player.CharacterAdded:Connect(function(char)
+    if not seaFarmRunning then return end
+
+    if activeTween then activeTween:Cancel() activeTween = nil end
+    CancelBoatTween()
+    if seaFarmThread then task.cancel(seaFarmThread) seaFarmThread = nil end
+
+    task.wait(2)
+    if not seaFarmRunning then return end
+
+    local hrp = char:WaitForChild("HumanoidRootPart", 5)
+    if not hrp then return end
+
+    SetNoclip(true)
+    SetBodyVelocity(true)
+
+    TweenToSync(BUY_BOAT_CFRAME)
+    if not seaFarmRunning then return end
+
+    task.wait(0.5)
+
+    pcall(function()
+        ReplicatedStorage.Remotes.CommF_:InvokeServer("BuyBoat", _G.SelectedBoat)
+    end)
+
+    local waited = 0
+    while waited < 5 do
+        task.wait(0.5)
+        waited += 0.5
+        if GetNearestBoat() then break end
+    end
+
+    if not seaFarmRunning then return end
+
+    seaFarmThread = task.spawn(SeaFarmLoop)
+end)
+
+--// ===================================================================
+--//              KHỞI ĐỘNG FARM (thay AutoSailToggle → dùng Config.AutoFarm)
+--// ===================================================================
+if Config.Settings.AutoFarm then
+    if not seaFarmRunning then
+        seaFarmThread = task.spawn(SeaFarmLoop)
+    end
+end
