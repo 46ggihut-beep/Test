@@ -2766,28 +2766,28 @@ local function QuestNeta()
             Qdata = 1
             Qname = "IceSideQuest"
             NameMon = "Lab Subordinate"
-            PosQ = CFrame.new(-6064.06885, 15.2422857, -4902.97852, .453972578, 0, -0.891015649, 0, 1, 0, .891015649, 0, .453972578)
+            PosQ = CFrame.new(-6228, 81, -4855)
             PosM = CFrame.new(-5707.4716796875, 15.951709747314, -4513.3920898438)
         elseif I == 1125 or I <= 1174 then
             Mon = "Horned Warrior"
             Qdata = 2
             Qname = "IceSideQuest"
             NameMon = "Horned Warrior"
-            PosQ = CFrame.new(-6064.06885, 15.2422857, -4902.97852, .453972578, 0, -0.891015649, 0, 1, 0, .891015649, 0, .453972578)
+            PosQ = CFrame.new(-6228, 81, -4855)
             PosM = CFrame.new(-6341.3666992188, 15.951770782471, -5723.162109375)
         elseif I == 1175 or I <= 1199 then
             Mon = "Magma Ninja"
             Qdata = 1
             Qname = "FireSideQuest"
             NameMon = "Magma Ninja"
-            PosQ = CFrame.new(-5428.03174, 15.0622921, -5299.43457, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
+            PosQ = CFrame.new(-5405, 29, -5368)
             PosM = CFrame.new(-5449.6728515625, 76.658744812012, -5808.2006835938)
         elseif I == 1200 or I <= 1249 then
             Mon = "Lava Pirate"
             Qdata = 2
             Qname = "FireSideQuest"
             NameMon = "Lava Pirate"
-            PosQ = CFrame.new(-5428.03174, 15.0622921, -5299.43457, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
+            PosQ = CFrame.new(-5405, 29, -5368)
             PosM = CFrame.new(-5213.3315429688, 49.737880706787, -4701.451171875)
         elseif I == 1250 or I <= 1274 then
             Mon = "Ship Deckhand"
