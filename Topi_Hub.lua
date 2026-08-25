@@ -472,6 +472,11 @@ local currentTween       = nil
 local currentTweenSpeed  = 0
 local currentTweenTarget = nil  -- Vector3 đích, dùng để phát hiện mob đổi hướng
 
+-- Forward-declare _tp: doIntermediateTeleport / UI callbacks gọi _tp trước khi
+-- thân hàm được gán bên dưới. Không khai báo sớm → Lua resolve thành global nil
+-- → lỗi "attempt to call a nil value" tại các dòng _tp(...).
+local _tp
+
 --------------------------------------------------------------------
 -- HÀM TELEPORT SPAM ĐẾN ĐẢO TRUNG GIAN
 -- Spam CFrame trong khoảng thời gian ngắn để đảm bảo đến nơi
@@ -2723,7 +2728,9 @@ end
 -- - Khi speed đổi → cancel và tạo tween mới
 -- ============================================================
 
-local function _tp(targetCF, speed)
+-- Gán vào local _tp đã forward-declare ở trên (không dùng local function
+-- mới — sẽ tạo local shadow và các chỗ gọi sớm vẫn trỏ global nil).
+_tp = function(targetCF, speed)
     if not shouldTween then return end
     if _intermediateRunning then return end  -- Đang tele trung gian → không tween
     if getgenv().BuddhaTransforming then return end
@@ -3786,7 +3793,11 @@ local _submergedRunning = false  -- guard: ngăn chạy song song từ Heartbeat
 -- Không truyền finalPos → hành vi cũ (dùng bởi auto-lv farm).
 --------------------------------------------------------------------
 local function TeleportToSubmerged(finalPos)
-    if not (World3 and player.Data.Level.Value >= 2600) then return end
+    -- Không gate theo level ở đây: lv 2600 chỉ là điều kiện để Farm Level
+    -- TỰ ĐỘNG quyết định có nên ghé Submerged Island hay không (xem check
+    -- ở Heartbeat của FarmLevel). Còn vào thủ công qua tab Travel thì
+    -- level nào cũng vào được.
+    if not World3 then return end
 
     -- Guard: ngăn Heartbeat spawn nhiều instance song song.
     if _submergedRunning then return end
@@ -3796,61 +3807,75 @@ local function TeleportToSubmerged(finalPos)
     _submergedCallId = _submergedCallId + 1
     local myId = _submergedCallId
 
-    local npcCF = CFrame.new(-16269.7041, 25.2288494, 1373.65955)
+    -- Bọc toàn bộ logic trong pcall: nếu có lỗi runtime bất kỳ (VD:
+    -- ReplicatedStorage.Modules.Net đổi cấu trúc, root nil tạm thời, ...)
+    -- thì _submergedRunning vẫn được reset về false thay vì bị KẸT true
+    -- vĩnh viễn — vì kẹt true nghĩa là MỌI lần bật TravelToIsland sau đó
+    -- (kể cả lần bấm thủ công từ tab Travel) sẽ bị guard chặn ngay từ đầu,
+    -- return không làm gì cả → nhân vật chỉ lơ lửng tại chỗ mãi mãi.
+    local ok, err = pcall(function()
+        local npcCF = CFrame.new(-16269.7041, 25.2288494, 1373.65955)
 
-    -- Bước 1: Fly đến NPC (tele trung gian được xử lý bên trong TweenToPos)
-    TweenToPos(npcCF, 350)
-
-    -- Đợi đến đủ gần ≤10 stud — không timeout, chỉ check khoảng cách
-    while true do
-        task.wait(0.15)
-        if myId ~= _submergedCallId then _submergedRunning = false; return end
-        if not getgenv().IsFarming then _submergedRunning = false; return end
-        local root = getRoot()
-        if root and (root.Position - npcCF.Position).Magnitude <= 10 then
-            break
-        end
-        -- vẫn chưa gần → gọi lại TweenToPos để tiếp tục bay
+        -- Bước 1: Fly đến NPC (tele trung gian được xử lý bên trong TweenToPos)
         TweenToPos(npcCF, 350)
-    end
 
-    if myId ~= _submergedCallId or not getgenv().IsFarming then
-        _submergedRunning = false
-        return
-    end
-
-    -- Bước 2: Dừng tween rồi kích hoạt TravelToSubmergedIsland ngay
-    if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-    currentTweenSpeed = 0
-
-    pcall(function()
-        ReplicatedStorage.Modules.Net:FindFirstChild("RF/SubmarineWorkerSpeak")
-            :InvokeServer("TravelToSubmergedIsland")
-    end)
-
-    -- Bước 4: Chờ server xử lý tele (4s: 2s buffer ban đầu + 2s thêm để
-    -- đảm bảo nhân vật đã được teleport vào island trước khi fly)
-    task.wait(4)
-
-    if myId ~= _submergedCallId or not getgenv().IsFarming then
-        _submergedRunning = false
-        return
-    end
-
-    -- Bước 5 (tuỳ chọn): Fly đến vị trí farm bên trong island
-    if finalPos then
-        local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
-        TweenToPos(farmCF, getgenv().FlySpeed or 300)
-
-        -- Bắt buộc tween tới finalPos, không timeout
-        while myId == _submergedCallId and getgenv().IsFarming do
+        -- Đợi đến đủ gần ≤10 stud — không timeout, chỉ check khoảng cách
+        while true do
             task.wait(0.15)
+            if myId ~= _submergedCallId then return end
+            if not getgenv().IsFarming then return end
             local root = getRoot()
-            if root and (root.Position - finalPos).Magnitude <= 100 then
+            if root and (root.Position - npcCF.Position).Magnitude <= 10 then
                 break
             end
-            TweenToPos(farmCF, getgenv().FlySpeed or 300)
+            -- vẫn chưa gần → gọi lại TweenToPos để tiếp tục bay
+            TweenToPos(npcCF, 350)
         end
+
+        if myId ~= _submergedCallId or not getgenv().IsFarming then return end
+
+        -- Bước 2: Dừng tween rồi kích hoạt TravelToSubmergedIsland ngay
+        if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
+        currentTweenSpeed = 0
+
+        local invoked = false
+        pcall(function()
+            ReplicatedStorage.Modules.Net:FindFirstChild("RF/SubmarineWorkerSpeak")
+                :InvokeServer("TravelToSubmergedIsland")
+            invoked = true
+        end)
+        if not invoked then
+            pcall(function()
+                Library:Notify({ Title = "Submerged Island", Content = "Không gọi được remote TravelToSubmergedIsland (có thể game đã đổi path).", Duration = 4 })
+            end)
+            return
+        end
+
+        -- Bước 4: Chờ server xử lý tele (4s: 2s buffer ban đầu + 2s thêm để
+        -- đảm bảo nhân vật đã được teleport vào island trước khi fly)
+        task.wait(4)
+
+        if myId ~= _submergedCallId or not getgenv().IsFarming then return end
+
+        -- Bước 5 (tuỳ chọn): Fly đến vị trí farm bên trong island
+        if finalPos then
+            local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
+            TweenToPos(farmCF, getgenv().FlySpeed or 300)
+
+            -- Bắt buộc tween tới finalPos, không timeout
+            while myId == _submergedCallId and getgenv().IsFarming do
+                task.wait(0.15)
+                local root = getRoot()
+                if root and (root.Position - finalPos).Magnitude <= 100 then
+                    break
+                end
+                TweenToPos(farmCF, getgenv().FlySpeed or 300)
+            end
+        end
+    end)
+
+    if not ok then
+        warn("[TeleportToSubmerged] Lỗi: " .. tostring(err))
     end
 
     _submergedRunning = false
