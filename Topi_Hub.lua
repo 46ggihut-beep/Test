@@ -1265,8 +1265,7 @@ end
 getgenv().BringMob = true           -- Bật tính năng kéo mob lại gần (giúp farm nhanh hơn)
 getgenv().FlySpeed = 280            -- Tốc độ bay (càng cao bay càng nhanh, nhưng dễ bị phát hiện)
 getgenv().FlyHeight = 30            -- (legacy) không dùng nữa — thay bằng FarmDistance/FarmPos
-getgenv().BringRange = 300          -- Phạm vi kéo mob (khoảng cách tối đa để bring mob)
-getgenv().BringDistance = 250       -- Alias bring (redz)
+getgenv().BringMobCount = 2         -- Số mob bring (2-6, gồm cả mob đang farm)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 -- Farm Mode (redz-style): "Up" | "Orbit" | "Star"
 getgenv().FarmMode = "Up"
@@ -2020,6 +2019,18 @@ Tabs.Settings:CreateToggle("BringMob", {
     end
 })
 
+Tabs.Settings:CreateSlider("BringMobCount", {
+    Title = "Số mob bring",
+    Description = "Tổng số mob gom về điểm farm, bao gồm cả mob đang farm (2 - 6)",
+    Default = 2,
+    Min = 2,
+    Max = 6,
+    Rounding = 1,
+    Callback = function(v)
+        getgenv().BringMobCount = v
+    end,
+})
+
 Tabs.Settings:CreateToggle("SmoothFarmMode", {
     Title = "Smooth Farm Mode",
     Description = "Giảm tốc độ tính toán để cải thiện FPS (redz SmoothMode)",
@@ -2618,136 +2629,87 @@ local function AttackEnemy(enemy)
     end
 end
 
---// ===================== BRING ENEMY (Heartbeat — TELEPORT, mỗi 0.2s) =====================
--- KHÔNG lock look pos: mỗi 0.2s teleport mob farm + TẤT CẢ mob cùng loại
--- trong BringRange thẳng về VỊ TRÍ HIỆN TẠI (live) của chính mob đang farm.
--- Không dùng tween/BodyVelocity — chỉ teleport.
--- Không bring nếu có player khác trong 500 stud quanh player.
--- SpinBring ON: teleport + orbit bán kính 5 quanh mob farm.
+--// ===================== BRING MOB (logic mới, thay toàn bộ logic cũ) =====================
+-- Toggle: getgenv().BringMob (Settings UI "Bring Mob")
+-- Slider: getgenv().BringMobCount (Settings UI "Số mob bring", 2 - 6)
+--   Chọn N => tổng nhóm mob tại điểm farm = N (tính luôn mob đang farm),
+--   tức bring thêm (N - 1) mob cùng loại gần player nhất về vị trí mob farm.
+-- Vị trí bring (PosMon) = vị trí HIỆN TẠI (live) của mob đang farm (CurrentTargetMob),
+-- vì Topi_Hub không dùng hệ Mon/MonFarm/PosMon/CheckQuest như bản gốc được đưa.
 --------------------------------------------------------------------
-local _spinAngle = 0
-_G.SpinBring = _G.SpinBring or false
+getgenv().BringMobCount = getgenv().BringMobCount or 2
 
-local MAX_BRING_RANGE = 300 -- Giới hạn cứng: chỉ bring mob trong phạm vi 200 stud
-local BRING_INTERVAL = 0.2  -- Bring mob mỗi 0.2 giây 1 lần
-local _bringAccum = 0
+spawn(function()
+    while task.wait() do
+        pcall(function()
+            if not getgenv().BringMob then return end
 
--- Noclip cho mob khi bị bring: tắt CanCollide toàn bộ BasePart của mob để
--- không bị kẹt/văng ra khi bị teleport chồng lên nhau hoặc dính địa hình
-local function NoclipMob(mob)
-    for _, v in ipairs(mob:GetDescendants()) do
-        if v:IsA("BasePart") and v.CanCollide then
-            v.CanCollide = false
-        end
-    end
-end
+            local targetMob = getgenv().CurrentTargetMob
+            if not targetMob or not targetMob.Parent then return end
 
-RunService.Heartbeat:Connect(function(dt)
-    if not getgenv().BringMob then return end
+            local targetHRP = targetMob:FindFirstChild("HumanoidRootPart")
+            local targetHum = targetMob:FindFirstChild("Humanoid")
+            if not targetHRP or not targetHum or targetHum.Health <= 0 then return end
 
-    _bringAccum = _bringAccum + dt
-    if _bringAccum < BRING_INTERVAL then return end
-    _bringAccum = 0
+            local myChar = player.Character
+            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if not myHRP then return end
 
-    local targetMob = getgenv().CurrentTargetMob
-    if not targetMob or not targetMob.Parent then return end
+            local mobName = targetMob.Name
+            local PosMon = targetHRP.CFrame -- mốc bring = vị trí hiện tại của mob farm
 
-    local anyFarmActive = getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob
-        or getgenv().FarmDungeon or getgenv().FarmEliteHunt
-        or getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-        or getgenv().FarmAura or getgenv().FarmTyrant
-    if not anyFarmActive then return end
-
-    -- Vị trí bring = vị trí HIỆN TẠI của mob farm (live, không lock)
-    local targetHRP = targetMob:FindFirstChild("HumanoidRootPart")
-    local targetHum = targetMob:FindFirstChild("Humanoid")
-    if not targetHRP or not targetHum or targetHum.Health <= 0 then return end
-    local center = targetHRP.Position
-
-    local myChar = player.Character
-    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    if not myHRP then return end
-
-    -- Không bring nếu có player khác trong 500 stud
-    for _, op in ipairs(Players:GetPlayers()) do
-        if op ~= player then
-            local oc = op.Character
-            local oh = oc and oc:FindFirstChild("HumanoidRootPart")
-            if oh and (oh.Position - myHRP.Position).Magnitude <= 200 then
-                return
-            end
-        end
-    end
-
-    local SPIN_RADIUS = 5
-    local mobName = targetMob.Name
-    -- Giới hạn cứng 200 stud, dù getgenv().BringRange có bị chỉnh cao hơn
-    local bringRange = math.min(getgenv().BringRange or MAX_BRING_RANGE, MAX_BRING_RANGE)
-
-    -- Thu thập: mob cùng loại trong range (không teleport mob farm - nó chính
-    -- là mốc center nên đứng yên tại chỗ)
-    local allMobs = {}
-    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        if enemy ~= targetMob then
-            local hum = enemy:FindFirstChild("Humanoid")
-            local hrp = enemy:FindFirstChild("HumanoidRootPart")
-            if hum and hrp and hum.Health > 0 and hrp.Parent and enemy.Name == mobName then
-                if (hrp.Position - myHRP.Position).Magnitude <= bringRange then
-                    table.insert(allMobs, enemy)
+            -- Chọn N mob gần player nhất trong tầm 320 để bring (N = slider - 1)
+            local bringCap = math.clamp((getgenv().BringMobCount or 2) - 1, 1, 5)
+            local candidates = {}
+            for _, v in pairs(workspace.Enemies:GetChildren()) do
+                if v ~= targetMob
+                and v:FindFirstChild("Humanoid")
+                and v:FindFirstChild("HumanoidRootPart")
+                and v.Humanoid.Health > 0
+                and v.Name == mobName then
+                    local dist = (v.HumanoidRootPart.Position - myHRP.Position).Magnitude
+                    if dist <= 320 then
+                        table.insert(candidates, {mob = v, dist = dist})
+                    end
                 end
             end
-        end
-    end
+            if #candidates == 0 then return end
 
-    if #allMobs == 0 then return end
+            table.sort(candidates, function(a, b) return a.dist < b.dist end)
 
-    pcall(function()
-        sethiddenproperty(player, "SimulationRadius", math.huge)
-    end)
+            for i = 1, math.min(bringCap, #candidates) do
+                local v = candidates[i].mob
+                pcall(function()
+                    -- Đặc biệt cho Factory Staff
+                    if v.Name == "Factory Staff" then
+                        if (v.HumanoidRootPart.Position - PosMon.Position).Magnitude <= 250 then
+                            v.Head.CanCollide = false
+                            v.HumanoidRootPart.CanCollide = false
+                            v.HumanoidRootPart.Size = Vector3.new(60, 60, 60)
+                            v.HumanoidRootPart.CFrame = PosMon
 
-    if _G.SpinBring then
-        -- Spin: teleport orbit quanh mob farm
-        _spinAngle = _spinAngle + (300 / SPIN_RADIUS) * BRING_INTERVAL
-        local n = #allMobs
-        for i, mob in ipairs(allMobs) do
-            pcall(function()
-                local hrp = mob:FindFirstChild("HumanoidRootPart")
-                local hum = mob:FindFirstChild("Humanoid")
-                if not hrp or not hum or hum.Health <= 0 then return end
-                -- dọn BV cũ nếu còn
-                local bv = hrp:FindFirstChild("_MobFlyBV")
-                if bv then bv:Destroy() end
-                NoclipMob(mob)
-                local angle = _spinAngle + (2 * math.pi / n) * (i - 1)
-                local orbitPos = Vector3.new(
-                    center.X + SPIN_RADIUS * math.cos(angle),
-                    center.Y,
-                    center.Z + SPIN_RADIUS * math.sin(angle)
-                )
-                hrp.CFrame = CFrame.new(orbitPos)
-                hrp.Velocity = Vector3.zero
-                hrp.CanCollide = false
-                hum.WalkSpeed = 0
-                hum.JumpPower = 0
-            end)
-        end
-    else
-        -- Teleport thẳng mọi mob cùng loại về vị trí hiện tại của mob farm
-        for _, mob in ipairs(allMobs) do
-            pcall(function()
-                local hrp = mob:FindFirstChild("HumanoidRootPart")
-                local hum = mob:FindFirstChild("Humanoid")
-                if not hrp or not hum or hum.Health <= 0 then return end
-                local bv = hrp:FindFirstChild("_MobFlyBV")
-                if bv then bv:Destroy() end
-                NoclipMob(mob)
-                hrp.CFrame = CFrame.new(center)
-                hrp.Velocity = Vector3.zero
-                hrp.CanCollide = false
-                hum.WalkSpeed = 0
-                hum.JumpPower = 0
-            end)
-        end
+                            if v.Humanoid:FindFirstChild("Animator") then
+                                v.Humanoid.Animator:Destroy()
+                            end
+                            sethiddenproperty(player, "SimulationRadius", math.huge)
+                        end
+                    else
+                        -- Bring bình thường
+                        if (v.HumanoidRootPart.Position - PosMon.Position).Magnitude <= 320 then
+                            v.HumanoidRootPart.Size = Vector3.new(60, 60, 60)
+                            v.HumanoidRootPart.CFrame = PosMon
+                            v.HumanoidRootPart.CanCollide = false
+                            v.Head.CanCollide = false
+
+                            if v.Humanoid:FindFirstChild("Animator") then
+                                v.Humanoid.Animator:Destroy()
+                            end
+                            sethiddenproperty(player, "SimulationRadius", math.huge)
+                        end
+                    end
+                end)
+            end
+        end)
     end
 end)
 
