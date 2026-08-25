@@ -1387,7 +1387,6 @@ getgenv().FarmLevel = false
 getgenv().FarmBone = false
 getgenv().FarmKata = false
 getgenv().FarmAura = false
-getgenv().FarmTyrant = false
 getgenv().FarmPhaBinh = false
 getgenv().FarmDungeon = false
 getgenv().AcceptQuestC = false
@@ -1559,7 +1558,7 @@ getgenv().CurrentTargetMob = nil    -- Mob đang được nhắm mục tiêu hi�
 local SelectedFarm = "Farm cấp"
 
 local function CheckWorldRequirement(farmType)
-    if farmType == "Farm bone" or farmType == "Farm kata" or farmType == "Tyrant of the Skie" then
+    if farmType == "Farm bone" or farmType == "Farm kata" then
         if not World3 then
             Library:Notify({
                 Title = "Sai World",
@@ -1577,14 +1576,14 @@ Tabs.Main:AddSection("Level Farm")
 
 Tabs.Main:CreateDropdown("FarmType", {
     Title = "Chọn loại Farm",
-    Values = {"Farm cấp", "Farm bone", "Farm kata", "Farm aura", "Tyrant of the Skie"},
+    Values = {"Farm cấp", "Farm bone", "Farm kata", "Farm aura"},
     Default = 1,
     Callback = GuardDropdown(function(v)
         SelectedFarm = v
         -- Chỉ xử lý restart nếu đang farm VÀ AutoFarm đang bật
         if not getgenv().IsFarming then return end
         if not (getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-                or getgenv().FarmAura or getgenv().FarmTyrant) then return end
+                or getgenv().FarmAura) then return end
 
         if not CheckWorldRequirement(v) then
             getgenv().IsFarming = false
@@ -1595,14 +1594,13 @@ Tabs.Main:CreateDropdown("FarmType", {
         task.spawn(function()
             -- Dừng toàn bộ farm đang chạy + reset tất cả flag
             stopLevelFarm(); stopBoneFarm(); stopKataFarm()
-            stopAuraFarm(); stopTyrantFarm(); stopPhaBinhFarm()
+            stopAuraFarm(); stopPhaBinhFarm()
             if type(stopSelectMobFarm) == "function" then stopSelectMobFarm() end
             stopFly()
             getgenv().FarmLevel     = false
             getgenv().FarmBone      = false
             getgenv().FarmKata      = false
             getgenv().FarmAura      = false
-            getgenv().FarmTyrant    = false
             getgenv().FarmSelectMob = false
 
             -- Delay 1 giây trước khi bật farm mới
@@ -1624,9 +1622,6 @@ Tabs.Main:CreateDropdown("FarmType", {
             elseif v == "Farm aura" then
                 getgenv().FarmAura = true
                 startFly(); startAuraFarm()
-            elseif v == "Tyrant of the Skie" then
-                getgenv().FarmTyrant = true
-                startFly(); startTyrantFarm()
             end
         end)
     end),
@@ -1640,7 +1635,6 @@ Tabs.Main:CreateToggle("AutoFarm", {
         getgenv().FarmBone = false
         getgenv().FarmKata = false
         getgenv().FarmAura = false
-        getgenv().FarmTyrant = false
         getgenv().FarmPhaBinh = false
         getgenv().AutoMaterial = false
         getgenv().FarmSelectMob = false
@@ -1663,8 +1657,6 @@ Tabs.Main:CreateToggle("AutoFarm", {
             getgenv().FarmKata = v
         elseif SelectedFarm == "Farm aura" then
             getgenv().FarmAura = v
-        elseif SelectedFarm == "Tyrant of the Skie" then
-            getgenv().FarmTyrant = v
         end
 
         if v then
@@ -1677,8 +1669,6 @@ Tabs.Main:CreateToggle("AutoFarm", {
                 startBoneFarm()
             elseif SelectedFarm == "Farm aura" then
                 startAuraFarm()
-            elseif SelectedFarm == "Tyrant of the Skie" then
-                startTyrantFarm()
             end
         else
             -- UI callbacks may run before fly functions are defined.
@@ -1687,7 +1677,6 @@ Tabs.Main:CreateToggle("AutoFarm", {
             if type(stopBoneFarm) == "function" then stopBoneFarm() end
             if type(stopKataFarm) == "function" then stopKataFarm() end
             if type(stopAuraFarm) == "function" then stopAuraFarm() end
-            if type(stopTyrantFarm) == "function" then stopTyrantFarm() end
             if type(stopPhaBinhFarm) == "function" then stopPhaBinhFarm() end
         end
     end
@@ -1883,14 +1872,12 @@ Tabs.Main:CreateToggle("AutoFarmSelectMob", {
         getgenv().FarmBone    = false
         getgenv().FarmKata    = false
         getgenv().FarmAura    = false
-        getgenv().FarmTyrant  = false
         getgenv().FarmPhaBinh = false
         getgenv().AutoMaterial = false
         if type(stopLevelFarm) == "function" then stopLevelFarm() end
         if type(stopBoneFarm) == "function" then stopBoneFarm() end
         if type(stopKataFarm) == "function" then stopKataFarm() end
         if type(stopAuraFarm) == "function" then stopAuraFarm() end
-        if type(stopTyrantFarm) == "function" then stopTyrantFarm() end
         if type(stopPhaBinhFarm) == "function" then stopPhaBinhFarm() end
 
         getgenv().FarmSelectMob = v
@@ -4512,92 +4499,6 @@ function stopAuraFarm()
     getgenv().CurrentTargetMob = nil
 end
 
---// ================= TYRANT OF THE SKIES FARM =================
-local tyrantFarmConn
-local TyrantBossPos = Vector3.new(-16268.287, 152.616, 1390.773)
-local TyrantMobList = {"Serpent Hunter", "Skull Slayer", "Isle Champion", "Sun-kissed Warrior"}
-
-function startTyrantFarm()
-    if tyrantFarmConn then tyrantFarmConn:Disconnect() end
-    if not World3 then return end
-    
-    tyrantFarmConn = RunService.Heartbeat:Connect(function(dt)
-        if not getgenv().FarmTyrant then return end
-        
-        pcall(function()
-            local root = getRoot()
-            if not root then return end
-            
-            if workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("TikiOutpost") then
-                local eyes = {
-                    workspace.Map.TikiOutpost.IslandModel:FindFirstChild("Eye1"),
-                    workspace.Map.TikiOutpost.IslandModel:FindFirstChild("Eye2"),
-                    workspace.Map.TikiOutpost.IslandModel:FindFirstChild("Eye3"),
-                    workspace.Map.TikiOutpost.IslandModel:FindFirstChild("Eye4")
-                }
-                local count = 0
-                for _, eye in ipairs(eyes) do
-                    if eye and eye:IsA("BasePart") and eye.Transparency == 0 then
-                        count = count + 1
-                    end
-                end
-                if count == 4 and not getgenv().FarmPhaBinh then
-                    getgenv().FarmTyrant = false
-                    getgenv().FarmPhaBinh = true
-                    getgenv().CurrentTargetMob = nil
-                    stopTyrantFarm()
-                    startPhaBinhFarm()
-                    return
-                end
-            end
-            
-            local boss = workspace.Enemies:FindFirstChild("Tyrant of the Skies")
-            if boss and boss:FindFirstChild("Humanoid") and boss.Humanoid.Health > 0 then
-                getgenv().CurrentTargetMob = boss
-                
-                if (root.Position - TyrantBossPos).Magnitude > 10 then
-                    TweenToFixedPos(root, CFrame.new(TyrantBossPos), getgenv().FlySpeed)
-                    return
-                end
-                selectWeapon()
-                AttackEnemy(boss)
-                return
-            end
-            
-            local targetMob = nil
-            for _, mobName in ipairs(TyrantMobList) do
-                targetMob = GetNearestEnemy(mobName)
-                if targetMob then break end
-            end
-            
-            getgenv().CurrentTargetMob = targetMob
-            
-            if targetMob then
-                local targetCF = GetFarmCFrame(targetMob)
-                if targetCF and (root.Position - targetCF.Position).Magnitude > 20 then
-                    TweenObject(root, targetCF, getgenv().FlySpeed)
-                end
-                
-                selectWeapon()
-                AttackEnemy(targetMob)
-            else
-                getgenv().CurrentTargetMob = nil
-                if (root.Position - TyrantBossPos).Magnitude > 10 then
-                    TweenToFixedPos(root, CFrame.new(TyrantBossPos), getgenv().FlySpeed)
-                end
-            end
-        end)
-    end)
-end
-
-function stopTyrantFarm()
-    if tyrantFarmConn then
-        tyrantFarmConn:Disconnect()
-        tyrantFarmConn = nil
-    end
-    getgenv().CurrentTargetMob = nil
-end
-
 --// ================= BREAK POTS FARM (TIKI) =================
 local phaBinhFarmConn
 local PhaBinhPoints = {
@@ -4622,15 +4523,6 @@ function startPhaBinhFarm()
         pcall(function()
             local root = getRoot()
             if not root then return end
-            
-            local boss = workspace.Enemies:FindFirstChild("Tyrant of the Skies")
-            if boss and boss:FindFirstChild("Humanoid") and boss.Humanoid.Health > 0 then
-                getgenv().FarmPhaBinh = false
-                getgenv().FarmTyrant = true
-                stopPhaBinhFarm()
-                startTyrantFarm()
-                return
-            end
             
             local targetCF = PhaBinhPoints[currentPointIndex]
             local dist = (root.Position - targetCF.Position).Magnitude
@@ -5338,7 +5230,6 @@ local function PauseNormalFarm()
     stopBoneFarm()
     stopKataFarm()
     stopAuraFarm()
-    stopTyrantFarm()
     stopPhaBinhFarm()
     print("⏸ Normal farm tạm dừng để farm Elite")
 end
@@ -5355,8 +5246,6 @@ local function ResumeNormalFarm()
         startKataFarm()
     elseif getgenv().FarmAura and SelectedFarm == "Farm aura" then
         startAuraFarm()
-    elseif getgenv().FarmTyrant and SelectedFarm == "Tyrant of the Skie" then
-        startTyrantFarm()
     end
     print("▶ Normal farm tiếp tục sau khi Elite xong")
 end
@@ -5429,7 +5318,7 @@ local function startEliteHunt()
 
                     -- Tắt fly + farming nếu không có normal farm chạy song song
                     local anyNormalFarm = getgenv().FarmLevel or getgenv().FarmBone
-                        or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                        or getgenv().FarmKata or getgenv().FarmAura
                         or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
                     if not anyNormalFarm then
                         getgenv().IsFarming = false
@@ -5477,7 +5366,7 @@ local function startEliteWatcher()
                 print("⚡ Phát hiện Elite! Bắt đầu farm elite...")
                 -- Tạm dừng normal farm nếu đang chạy
                 local anyNormalFarm = getgenv().FarmLevel or getgenv().FarmBone
-                    or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                    or getgenv().FarmKata or getgenv().FarmAura
                 if anyNormalFarm then
                     PauseNormalFarm()
                 end
@@ -5510,7 +5399,7 @@ Q:OnChanged(function(Value)
         print("✅ Bật Auto Elite Quest — đang chờ Elite xuất hiện...")
         -- Bật fly/farm ngay nếu đang có normal farm chạy
         local anyNormalFarm = getgenv().FarmLevel or getgenv().FarmBone
-            or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+            or getgenv().FarmKata or getgenv().FarmAura
             or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
         if anyNormalFarm and not getgenv().IsFarming then
             getgenv().IsFarming = true
@@ -5521,7 +5410,7 @@ Q:OnChanged(function(Value)
         -- Nếu elite đã có sẵn ngay lúc bật toggle, kích hoạt luôn
         if IsEliteAvailable() then
             local hasNormal = getgenv().FarmLevel or getgenv().FarmBone
-                or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                or getgenv().FarmKata or getgenv().FarmAura
             if hasNormal then PauseNormalFarm() end
             if not getgenv().IsFarming then
                 getgenv().IsFarming = true
@@ -5535,7 +5424,7 @@ Q:OnChanged(function(Value)
     else
         stopEliteHunt()
         local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
+            or getgenv().FarmAura or getgenv().AutoMaterial or getgenv().FarmSelectMob
             or getgenv().FarmDungeon
         if not anyFarmActive then
             getgenv().IsFarming = false
@@ -5574,7 +5463,7 @@ AutoSea2Toggle:OnChanged(function(v)
         Library:Notify({ Title = "Auto Sea 2", Content = "Đã bật — đang xử lý Travel Dressrosa...", Duration = 3 })
     else
         local anyFarm = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
+            or getgenv().FarmAura or getgenv().AutoMaterial or getgenv().FarmSelectMob
             or getgenv().FarmDungeon or getgenv().AutoZou or getgenv().FarmEliteHunt
         if not anyFarm then
             getgenv().IsFarming = false
@@ -5659,7 +5548,7 @@ AutoSea3Toggle:OnChanged(function(v)
         Library:Notify({ Title = "Auto Sea 3", Content = "Đã bật — chạy logic redz → Third Sea...", Duration = 3 })
     else
         local anyFarm = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-            or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
+            or getgenv().FarmAura or getgenv().AutoMaterial or getgenv().FarmSelectMob
             or getgenv().FarmDungeon or getgenv().TravelDres or getgenv().FarmEliteHunt
         if not anyFarm then
             getgenv().IsFarming = false
@@ -6039,7 +5928,7 @@ Tabs.FruitRaid:CreateToggle("DungeonFarm", {
             stopDungeonFarm()
             -- Chi tat IsFarming neu khong co farm nao khac dang chay
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-                or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().FarmEliteHunt
+                or getgenv().FarmAura or getgenv().FarmEliteHunt
                 or getgenv().AutoMaterial or getgenv().FarmSelectMob
             if not anyFarmActive then
                 getgenv().IsFarming = false
@@ -6262,7 +6151,7 @@ local function PauseFarmForFruit()
     if getgenv().FruitPickActive then return end
     getgenv().FruitPickActive = true
     stopLevelFarm(); stopBoneFarm(); stopKataFarm()
-    stopAuraFarm(); stopTyrantFarm(); stopPhaBinhFarm()
+    stopAuraFarm(); stopPhaBinhFarm()
     print("⏸ Farm tạm dừng để nhặt Fruit")
 end
 
@@ -6278,8 +6167,6 @@ local function ResumeFarmAfterFruit()
         startKataFarm()
     elseif getgenv().FarmAura and SelectedFarm == "Farm aura" then
         startAuraFarm()
-    elseif getgenv().FarmTyrant and SelectedFarm == "Tyrant of the Skie" then
-        startTyrantFarm()
     end
     print("▶ Farm tiếp tục sau khi nhặt Fruit xong")
 end
@@ -6297,7 +6184,7 @@ local function startFruitPick(targetHandle)
             getgenv().CurrentTargetMob = nil
 
             local anyNormalFarm = getgenv().FarmLevel or getgenv().FarmBone
-                or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                or getgenv().FarmKata or getgenv().FarmAura
                 or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
             if not anyNormalFarm then
                 getgenv().IsFarming = false
@@ -6333,7 +6220,7 @@ local function startFruitWatcher()
 
                 -- Pause normal farm nếu đang chạy
                 local anyNormalFarm = getgenv().FarmLevel or getgenv().FarmBone
-                    or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                    or getgenv().FarmKata or getgenv().FarmAura
                 if anyNormalFarm then
                     PauseFarmForFruit()
                 else
@@ -6372,7 +6259,7 @@ Tabs.FruitRaid:CreateToggle("TwF", {
         else
             stopFruitWatcher()
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
-                or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                or getgenv().FarmKata or getgenv().FarmAura
                 or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
                 or getgenv().AutoRaid or getgenv().RaidOnly
             if not anyFarmActive then
@@ -6720,7 +6607,7 @@ end
 
 local function anyOtherFarmActive()
     return getgenv().FarmLevel or getgenv().FarmBone
-        or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+        or getgenv().FarmKata or getgenv().FarmAura
         or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon
 end
 
@@ -7164,7 +7051,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
         if not v then
             -- Tắt fly nếu không có farm nào khác đang chạy
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
-                or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                or getgenv().FarmKata or getgenv().FarmAura
                 or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon or getgenv().AutoRaid
             if not anyFarmActive then
                 getgenv().IsFarming = false
@@ -7210,7 +7097,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                     getgenv().TravelToIsland = false
                     TravelIslandToggle:SetValue(false)
                     local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
-                        or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                        or getgenv().FarmKata or getgenv().FarmAura
                         or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon or getgenv().AutoRaid
                     if not anyFarmActive then
                         getgenv().IsFarming = false
@@ -7237,7 +7124,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                 getgenv().TravelToIsland = false
                 TravelIslandToggle:SetValue(false)
                 local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
-                    or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                    or getgenv().FarmKata or getgenv().FarmAura
                     or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon or getgenv().AutoRaid
                 if not anyFarmActive then
                     getgenv().IsFarming = false
@@ -7275,7 +7162,7 @@ local GoNPCs = Tabs.Travel:CreateToggle("GoNPCs", {
             startFly()
         else
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone
-                or getgenv().FarmKata or getgenv().FarmAura or getgenv().FarmTyrant
+                or getgenv().FarmKata or getgenv().FarmAura
                 or getgenv().AutoMaterial or getgenv().FarmSelectMob or getgenv().FarmDungeon or getgenv().AutoRaid
             if not anyFarmActive then
                 getgenv().IsFarming = false
@@ -7487,7 +7374,7 @@ local function BuyFightingStyle(styleName, styleData, enabled)
 
             -- Tắt fly nếu không có farm nào khác
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-                or getgenv().FarmAura or getgenv().FarmTyrant or getgenv().AutoMaterial or getgenv().FarmSelectMob
+                or getgenv().FarmAura or getgenv().AutoMaterial or getgenv().FarmSelectMob
                 or getgenv().FarmDungeon
             if not anyFarmActive then
                 getgenv().IsFarming = false
