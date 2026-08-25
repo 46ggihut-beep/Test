@@ -444,6 +444,23 @@ local function getIntermediateTeleport(a, b)
 end
 
 --------------------------------------------------------------------
+-- HÀM TÍNH KHOẢNG CÁCH TỪ ĐÍCH TỚI ĐẢO TRUNG GIAN (Portal/Tiki) GẦN NHẤT
+-- Dùng để quyết định: đích gần đảo trung gian -> ưu tiên Portal/Tiki,
+-- đích xa đảo trung gian -> mới cần Reset Teleport chuỗi hop.
+--------------------------------------------------------------------
+local function GetNearestIntermediateDist(targetPos)
+    local best = math.huge
+    for _, island in ipairs(IntermediateIslands) do
+        local isTiki = island.special == "Tiki" or island.name == "Tiki"
+        if not (isTiki and not getgenv().TeleTiki) then
+            local d = (island.pos - targetPos).Magnitude
+            if d < best then best = d end
+        end
+    end
+    return best
+end
+
+--------------------------------------------------------------------
 -- FLY STATE VARIABLES (chest-style)
 -- shouldTween       : true khi fly được phép chạy
 -- currentTween      : tween đang chạy hiện tại (nil = đứng yên)
@@ -611,63 +628,250 @@ local function ResetTP_GetTPLocation(pos)
     return bestName
 end
 
-local function ResetTP_TweenBypass(target)
-    local targetPos = typeof(target) == "CFrame" and target.Position or target
-    if typeof(targetPos) ~= "Vector3" then return false end
+--------------------------------------------------------------------
+-- ResetTP_GetIslandName(pos)
+-- Trả về tên Location (đảo) chứa pos đang nằm trong bán kính.
+-- Dùng để skip spawnpoint cùng đảo hiện tại khi build hop chain.
+--------------------------------------------------------------------
+local function ResetTP_GetIslandName(pos)
+    if typeof(pos) == "CFrame" then pos = pos.Position end
+    if typeof(pos) ~= "Vector3" then return nil end
 
-    if not next(ResetTP_BypassTpLocation) then
-        if not ResetTP_LoadBypassTPLocation() then return false end
+    local locations = ResetTP_WorldOrigin and ResetTP_WorldOrigin:FindFirstChild("Locations")
+    if not locations then return nil end
+
+    local bestName, bestDist = nil, math.huge
+    for _, loc in ipairs(locations:GetChildren()) do
+        if loc:IsA("BasePart") then
+            local mesh = loc:FindFirstChildWhichIsA("SpecialMesh")
+            local scaleX = (mesh and mesh.Scale.X) or 1
+            local radius = (loc.Size.X * scaleX) / 2
+            local d = ResetTP_Distance(pos, loc.Position)
+            if d <= radius and d < bestDist then
+                bestDist = d
+                bestName = loc.Name
+            end
+        end
     end
+    return bestName
+end
 
-    local char = player.Character
-    if not char or not ResetTP_GetHRP() then return false end
+--------------------------------------------------------------------
+-- [FIX] RESET TELEPORT — CHUỖI HOP QUA TỪNG ĐẢO
+-- Trước đây: chỉ chọn 1 spawn point GẦN ĐÍCH NHẤT rồi reset thẳng 1 lần,
+-- bất kể spawn đó xa vị trí hiện tại của player bao nhiêu -> dễ chọn
+-- nhầm đảo quá xa / không liền mạch với đường đi thực tế.
+--
+-- Bây giờ: xây dựng 1 CHUỖI các đảo (spawn point) từ vị trí hiện tại
+-- tới đích. Mỗi bước (hop) chỉ chọn đảo GẦN VỊ TRÍ HIỆN TẠI NHẤT trong
+-- số các đảo giúp RÚT NGẮN khoảng cách còn lại tới đích (tiến bộ thật
+-- sự) — tức vừa "gần đích" (có tiến bộ) vừa "gần player" (đảo kế tiếp
+-- hợp lý trên đường đi), không nhảy 1 phát tới đảo xa nhất mà chỉ gần
+-- đích. Nếu có nhiều đảo nằm giữa player và đích, sẽ reset lần lượt
+-- qua từng đảo một (mỗi lần 1 lần chết/hồi sinh) cho tới khi đủ gần đích.
+--------------------------------------------------------------------
+local RESETTP_PROGRESS_MARGIN = 500    -- mỗi hop phải rút ngắn tối thiểu bấy nhiêu stud tới đích
+local RESETTP_MIN_HOP_DIST    = 200    -- hop phải cách vị trí hiện tại tối thiểu bấy nhiêu (tránh hop vô nghĩa)
+local RESETTP_CLOSE_ENOUGH    = 3000   -- đủ gần đích thì dừng chain, để tween/portal lo nốt quãng còn lại
+local RESETTP_MAX_HOPS        = 6      -- giới hạn số lần reset liên tiếp (tránh loop vô hạn)
+local RESETTP_PREFER_PORTAL_DIST = 3000 -- đích gần đảo trung gian trong phạm vi này -> ưu tiên Portal/Tiki, bỏ qua Reset
 
-    local spawnList = {}
+-- Gom toàn bộ spawn point đã biết (loại trùng theo toạ độ)
+local function ResetTP_GetAllSpawns()
+    if not next(ResetTP_BypassTpLocation) then
+        ResetTP_LoadBypassTPLocation()
+    end
+    local allSpawns = {}
     local seen = {}
     for _, entries in pairs(ResetTP_BypassTpLocation) do
         for _, entry in ipairs(entries) do
             local cf = entry[2]
-            local key = string.format("%.3f|%.3f|%.3f", cf.Position.X, cf.Position.Y, cf.Position.Z)
+            local key = string.format("%.2f|%.2f|%.2f", cf.Position.X, cf.Position.Y, cf.Position.Z)
             if not seen[key] then
                 seen[key] = true
-                table.insert(spawnList, cf)
+                table.insert(allSpawns, cf)
             end
         end
     end
-    if #spawnList == 0 then return false end
+    return allSpawns
+end
 
-    table.sort(spawnList, function(a, b)
-        return ResetTP_Distance(a.Position, targetPos) < ResetTP_Distance(b.Position, targetPos)
-    end)
+--------------------------------------------------------------------
+-- ResetTP_FindHopChain(startPos, targetPos)
+-- Trả về mảng các {name, cf} theo thứ tự thực hiện (đảo kế tiếp gần
+-- player nhất trong số các đảo giúp tiến gần đích hơn); rỗng nếu không
+-- tìm được hop nào hợp lệ.
+--------------------------------------------------------------------
+local function ResetTP_FindHopChain(startPos, targetPos)
+    local allSpawns = ResetTP_GetAllSpawns()
+    if #allSpawns == 0 then return {} end
 
-    local lastSpawnScript = char:FindFirstChild("LastSpawnPoint")
-    if lastSpawnScript and lastSpawnScript:IsA("LocalScript") then
-        lastSpawnScript.Disabled = true
-    end
+    local chain   = {}
+    local current = startPos
+    local used    = {}
 
-    local setOk = false
-    for _, spawnCF in ipairs(spawnList) do
-        local spawnName = ResetTP_GetTPLocation(spawnCF.Position)
-        if spawnName then
-            local distSpawnToTarget = ResetTP_Distance(spawnCF.Position, targetPos)
-            local distPlayerToTarget = ResetTP_Distance(targetPos)
-            if (distSpawnToTarget + 500) < distPlayerToTarget
-                and ResetTP_Distance(spawnCF.Position) >= 1000 then
-                local ok = pcall(function()
-                    ResetTP_ComF:InvokeServer("SetLastSpawnPoint", spawnName)
-                end)
-                if ok then
-                    setOk = true
-                    break
+    for _ = 1, RESETTP_MAX_HOPS do
+        local distCurToTarget = ResetTP_Distance(current, targetPos)
+        if distCurToTarget <= RESETTP_CLOSE_ENOUGH then break end
+
+        -- Đảo (Location) hiện tại của player / hop trước đó.
+        -- Spawnpoint nằm cùng đảo này sẽ bị SKIP — chỉ reset tới spawn
+        -- không còn trong khu vực đảo hiện tại.
+        local currentIsland = ResetTP_GetIslandName(current)
+
+        -- Trong số spawn CHƯA DÙNG và giúp RÚT NGẮN khoảng cách tới đích,
+        -- chọn spawn GẦN VỊ TRÍ HIỆN TẠI (player / hop trước đó) NHẤT —
+        -- đảo kế tiếp hợp lý trên đường đi, không phải đảo gần đích nhất
+        -- một cách mù quáng. Đồng thời bỏ qua spawn cùng đảo hiện tại.
+        local best, bestDistFromCur = nil, math.huge
+        for i, cf in ipairs(allSpawns) do
+            if not used[i] then
+                local sameIsland = false
+                if currentIsland then
+                    local spawnIsland = ResetTP_GetIslandName(cf.Position)
+                    if spawnIsland and spawnIsland == currentIsland then
+                        sameIsland = true
+                    end
+                end
+
+                if not sameIsland then
+                    local distToTarget = ResetTP_Distance(cf.Position, targetPos)
+                    if (distToTarget + RESETTP_PROGRESS_MARGIN) < distCurToTarget then
+                        local distFromCur = ResetTP_Distance(cf.Position, current)
+                        if distFromCur >= RESETTP_MIN_HOP_DIST and distFromCur < bestDistFromCur then
+                            bestDistFromCur = distFromCur
+                            best = {idx = i, cf = cf}
+                        end
+                    end
                 end
             end
         end
+
+        if not best then break end
+
+        local spawnName = ResetTP_GetTPLocation(best.cf.Position)
+        if not spawnName then break end
+
+        used[best.idx] = true
+        table.insert(chain, {name = spawnName, cf = best.cf})
+        current = best.cf.Position
     end
 
+    return chain
+end
+
+-- Giữ tên hàm cũ (tương thích ngược) — tìm hop đầu tiên và set
+-- LastSpawnPoint cho hop đó (dùng cho chỗ nào gọi lẻ 1 lần).
+local function ResetTP_TweenBypass(target)
+    local targetPos = typeof(target) == "CFrame" and target.Position or target
+    if typeof(targetPos) ~= "Vector3" then return false end
+
+    local hrp = ResetTP_GetHRP()
+    if not hrp then return false end
+
+    local chain = ResetTP_FindHopChain(hrp.Position, targetPos)
+    if #chain == 0 then return false end
+
+    local hop = chain[1]
+    local char = player.Character
+    local lastSpawnScript = char and char:FindFirstChild("LastSpawnPoint")
+    if lastSpawnScript and lastSpawnScript:IsA("LocalScript") then
+        lastSpawnScript.Disabled = true
+    end
+    local setOk = pcall(function()
+        ResetTP_ComF:InvokeServer("SetLastSpawnPoint", hop.name)
+    end)
     if lastSpawnScript then
         lastSpawnScript.Disabled = false
     end
     return setOk
+end
+
+--------------------------------------------------------------------
+-- [RULE] ĐẢO RÙA (TURTLE / MANSION) → CÁC ĐẢO CAKE/PEANUT/...
+-- Đang đứng trên đảo Rùa (khu vực pos Mansion) mà đích nằm ở một trong:
+--   Peanut Island, Ice Cream Island, CakeLoaf, North Poles, Cacao Island
+-- → BẮT BUỘC tween ra biển trước, KHÔNG dùng Reset Tele.
+-- Khi đã ra khỏi vùng đảo Rùa (XZ > radius) thì Reset Tele được phép lại.
+--------------------------------------------------------------------
+local RESETTP_TURTLE_CENTER = Vector3.new(-12463.81, 374.95, -7550.29)
+local RESETTP_TURTLE_RADIUS = 4200  -- bán kính XZ coi là còn trên đảo Rùa
+
+-- Đích bị chặn khi đang ở đảo Rùa (pos trung tâm + bán kính XZ)
+local RESETTP_BLOCKED_FROM_TURTLE = {
+    { name = "Peanut Island",    pos = Vector3.new(-1943.60,  44.90, -10288.01), radius = 2200 },
+    { name = "Ice Cream Island", pos = Vector3.new( -950.00,  59.00, -10907.00), radius = 2200 },
+    { name = "CakeLoaf",         pos = Vector3.new(-2106.07,  45.10, -11908.52), radius = 2500 },
+    { name = "North Poles",      pos = Vector3.new( -986.51,  26.67, -14087.59), radius = 2500 },
+    { name = "Cacao Island",     pos = Vector3.new(  471.13,  42.35, -12212.00), radius = 2200 },
+}
+
+local function ResetTP_XZDist(a, b)
+    if typeof(a) == "CFrame" then a = a.Position end
+    if typeof(b) == "CFrame" then b = b.Position end
+    if typeof(a) ~= "Vector3" or typeof(b) ~= "Vector3" then return math.huge end
+    return (Vector2.new(a.X, a.Z) - Vector2.new(b.X, b.Z)).Magnitude
+end
+
+local function ResetTP_IsOnTurtleIsland(pos)
+    if typeof(pos) == "CFrame" then pos = pos.Position end
+    if typeof(pos) ~= "Vector3" then return false end
+
+    -- Ưu tiên khoảng cách XZ tới trung tâm Mansion
+    if ResetTP_XZDist(pos, RESETTP_TURTLE_CENTER) <= RESETTP_TURTLE_RADIUS then
+        return true
+    end
+
+    -- Fallback: Location name chứa chứa có keyword Turtle/Mansion
+    local islandName = ResetTP_GetIslandName(pos)
+    if islandName then
+        local lower = string.lower(islandName)
+        if string.find(lower, "turtle", 1, true)
+            or string.find(lower, "mansion", 1, true)
+            or string.find(lower, "bigmansion", 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function ResetTP_IsBlockedTurtleTarget(pos)
+    if typeof(pos) == "CFrame" then pos = pos.Position end
+    if typeof(pos) ~= "Vector3" then return false end
+
+    for _, zone in ipairs(RESETTP_BLOCKED_FROM_TURTLE) do
+        if ResetTP_XZDist(pos, zone.pos) <= zone.radius then
+            return true, zone.name
+        end
+    end
+
+    -- Fallback theo Location name
+    local islandName = ResetTP_GetIslandName(pos)
+    if islandName then
+        local lower = string.lower(islandName)
+        if string.find(lower, "peanut", 1, true)
+            or string.find(lower, "ice cream", 1, true)
+            or string.find(lower, "icecream", 1, true)
+            or string.find(lower, "cake", 1, true)
+            or string.find(lower, "cacao", 1, true)
+            or string.find(lower, "cocoa", 1, true)
+            or string.find(lower, "north pole", 1, true)
+            or string.find(lower, "northpole", 1, true) then
+            return true, islandName
+        end
+    end
+    return false, nil
+end
+
+-- true = đang trên đảo Rùa VÀ đích thuộc nhóm bị chặn → phải tween ra biển trước
+local function ResetTP_MustTweenOffTurtle(targetPos)
+    local hrp = ResetTP_GetHRP()
+    if not hrp then return false end
+    if not ResetTP_IsOnTurtleIsland(hrp.Position) then
+        return false  -- đã ra khỏi đảo Rùa → cho phép Reset
+    end
+    local blocked = ResetTP_IsBlockedTurtleTarget(targetPos)
+    return blocked == true
 end
 
 local function ResetTP_ShouldUse(targetCF)
@@ -678,7 +882,55 @@ local function ResetTP_ShouldUse(targetCF)
 
     local targetPos = typeof(targetCF) == "CFrame" and targetCF.Position or targetCF
     if typeof(targetPos) ~= "Vector3" then return false end
+
+    -- Rule đảo Rùa → Cake/Peanut/...: bắt buộc tween ra biển, không Reset
+    if ResetTP_MustTweenOffTurtle(targetPos) then
+        return false
+    end
+
     return ResetTP_Distance(targetPos) >= 1000
+end
+
+--------------------------------------------------------------------
+-- ResetTP_RunHopChain(chain, isStillActiveFn)
+-- Thực hiện lần lượt từng hop trong chain: SetLastSpawnPoint -> giết
+-- nhân vật -> chờ hồi sinh -> delay 0.35s -> hop kế tiếp. Dừng giữa
+-- chừng nếu farm/tính năng gọi nó đã bị tắt (isStillActiveFn trả false).
+-- Trả về true nếu đã chạy hết chain (không bị huỷ giữa chừng).
+--------------------------------------------------------------------
+local function ResetTP_RunHopChain(chain, isStillActiveFn)
+    for i, hop in ipairs(chain) do
+        if getgenv()._ResetTP_BlockFlag then return false end
+        if isStillActiveFn and not isStillActiveFn() then return false end
+
+        local char = player.Character
+        local lastSpawnScript = char and char:FindFirstChild("LastSpawnPoint")
+        if lastSpawnScript and lastSpawnScript:IsA("LocalScript") then
+            lastSpawnScript.Disabled = true
+        end
+        local setOk = pcall(function()
+            ResetTP_ComF:InvokeServer("SetLastSpawnPoint", hop.name)
+        end)
+        if lastSpawnScript then
+            lastSpawnScript.Disabled = false
+        end
+        if not setOk then return false end
+
+        print(("🔄 Reset Teleport hop %d/%d -> %s"):format(i, #chain, hop.name))
+
+        local oldCharacter = player.Character
+        local oldHumanoid = oldCharacter and oldCharacter:FindFirstChildOfClass("Humanoid")
+        if oldHumanoid and oldHumanoid.Health > 0 then
+            pcall(function() oldHumanoid.Health = 0 end)
+        end
+
+        local newCharacter = player.CharacterAdded:Wait()
+        local newRoot = newCharacter:WaitForChild("HumanoidRootPart", 12)
+        if newRoot then
+            task.wait(0.35)
+        end
+    end
+    return true
 end
 
 local function ResetTP_Try(targetCF)
@@ -688,7 +940,13 @@ end
 
 ResetTP.LoadBypassTPLocation = ResetTP_LoadBypassTPLocation
 ResetTP.GetTPLocation = ResetTP_GetTPLocation
+ResetTP.GetIslandName = ResetTP_GetIslandName
+ResetTP.IsOnTurtleIsland = ResetTP_IsOnTurtleIsland
+ResetTP.IsBlockedTurtleTarget = ResetTP_IsBlockedTurtleTarget
+ResetTP.MustTweenOffTurtle = ResetTP_MustTweenOffTurtle
 ResetTP.TweenBypass = ResetTP_TweenBypass
+ResetTP.FindHopChain = ResetTP_FindHopChain
+ResetTP.RunHopChain = ResetTP_RunHopChain
 ResetTP.ShouldResetTeleportSmart = ResetTP_ShouldUse
 ResetTP.TryResetTeleport = ResetTP_Try
 ResetTP.BypassTpLocation = ResetTP_BypassTpLocation
@@ -731,36 +989,46 @@ local function doIntermediateTeleport(targetCF, speed)
     -- Ưu tiên: Reset -> Tiki -> Portal.
     -- Reset không phụ thuộc TelePorto; chỉ cần Reset Teleport được bật
     -- và reset thực sự có lợi cho quãng đường hiện tại.
-    if ResetTP_Try(targetCF) then
-        _intermediateRunning = true
+    if ResetTP_ShouldUse(targetCF) then
+        local allThreeTeleEnabled = getgenv().ResetTeleportEnabled and getgenv().TelePorto and getgenv().TeleTiki
+        local nearestIntermediateDist = GetNearestIntermediateDist(targetCF.Position)
 
-        task.spawn(function()
-            if currentTween then
-                pcall(function() currentTween:Cancel() end)
-                currentTween = nil
-            end
-            currentTweenSpeed = 0
-            currentTweenTarget = nil
+        -- [FIX] Nếu cả 3 toggle tele (Reset + TelePorto + TeleTiki) đều bật
+        -- VÀ đích đang gần 1 đảo trung gian (trong RESETTP_PREFER_PORTAL_DIST)
+        -- -> ưu tiên dùng Portal/Tiki luôn, KHÔNG cần Reset (ít chết/hồi sinh
+        -- hơn, đơn giản hơn). Reset chỉ dùng khi đích XA đảo trung gian hơn
+        -- 1 đảo spawnpoint (nearestIntermediateDist > ngưỡng này).
+        local skipResetForPortal = allThreeTeleEnabled
+            and nearestIntermediateDist <= RESETTP_PREFER_PORTAL_DIST
 
-            local oldCharacter = player.Character
-            local oldHumanoid = oldCharacter and oldCharacter:FindFirstChildOfClass("Humanoid")
-            if oldHumanoid and oldHumanoid.Health > 0 then
-                pcall(function() oldHumanoid.Health = 0 end)
-            end
+        local hrp = not skipResetForPortal and ResetTP_GetHRP() or nil
+        local chain = hrp and ResetTP_FindHopChain(hrp.Position, targetCF.Position) or {}
 
-            local newCharacter = player.CharacterAdded:Wait()
-            local newRoot = newCharacter:WaitForChild("HumanoidRootPart", 12)
-            if newRoot then
-                task.wait(0.35)
-            end
+        if #chain > 0 then
+            _intermediateRunning = true
 
-            _intermediateRunning = false
-            if getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob
-                or getgenv().TravelToIsland or getgenv().TPNpc or getgenv().AutoZou or getgenv().TravelDres then
-                _tp(targetCF, speed)
-            end
-        end)
-        return true
+            task.spawn(function()
+                if currentTween then
+                    pcall(function() currentTween:Cancel() end)
+                    currentTween = nil
+                end
+                currentTweenSpeed = 0
+                currentTweenTarget = nil
+
+                local function stillActive()
+                    return getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob
+                        or getgenv().TravelToIsland or getgenv().TPNpc or getgenv().AutoZou or getgenv().TravelDres
+                end
+
+                ResetTP_RunHopChain(chain, stillActive)
+
+                _intermediateRunning = false
+                if stillActive() then
+                    _tp(targetCF, speed)
+                end
+            end)
+            return true
+        end
     end
 
     -- Không Reset được → mới xét Portal/Tiki.
