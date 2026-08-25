@@ -5437,6 +5437,151 @@ Q:OnChanged(function(Value)
 end)
 
 --------------------------------------------------------------------
+-- STATUS TAB: BỔ SUNG THÊM (Elite Progress, Sword Dealer, Barista
+-- Cousin, Berries, Players, Private Server)
+-- Dùng lại GetNearestEliteEnemy/GetEliteReplicatedPart đã định nghĩa
+-- ở trên (Elite Hunt section), không viết lại logic elite.
+--------------------------------------------------------------------
+
+-- Elite Progress / Elite Hunter (chỉ hiện ở Sea 3, elite thuộc World3)
+local EliteProgressStatus = Tabs.Status:CreateParagraph("EliteProgressStatus", {
+    Title = "Elite Progress",
+    Content = "Loading..."
+})
+
+if World3 then
+    local eliteFoundAt = nil
+    local ELITE_WINDOW = 600 -- giây, chỉnh nếu cooldown thật khác
+
+    spawn(function()
+        while task.wait(1) do
+            pcall(function()
+                local mob = GetNearestEliteEnemy()
+                local repPart = GetEliteReplicatedPart()
+
+                if mob or repPart then
+                    eliteFoundAt = nil
+                    local mobName = mob and mob.Name or (repPart and repPart.Name) or "?"
+                    EliteProgressStatus:SetContent("Elite Hunter: " .. mobName .. " 🟢")
+                else
+                    if not eliteFoundAt then eliteFoundAt = tick() end
+                    local remain = ELITE_WINDOW - (tick() - eliteFoundAt)
+                    local timerText = remain > 0
+                        and string.format("%02d:%02d", math.floor(remain / 60), math.floor(remain % 60))
+                        or "00:00"
+                    EliteProgressStatus:SetContent("Elite Hunter: " .. timerText .. " 🔴")
+                end
+            end)
+        end
+    end)
+else
+    EliteProgressStatus:SetContent("Elite Hunter: chỉ hiện ở Sea 3")
+end
+
+-- Legendary Sword Dealer (chỉ hiện ở Sea 2)
+-- Lưu ý: tên/đường dẫn NPC lấy theo cấu trúc phổ biến của map Blox Fruits
+-- (workspace.NPCs). Nếu game đổi cấu trúc, chỉnh lại path bên dưới.
+local SwordDealerStatus = Tabs.Status:CreateParagraph("SwordDealerStatus", {
+    Title = "Legendary Sword Dealer",
+    Content = "Loading..."
+})
+
+if World2 then
+    spawn(function()
+        while task.wait(1) do
+            pcall(function()
+                local npcFolder = workspace:FindFirstChild("NPCs")
+                local dealer = npcFolder and npcFolder:FindFirstChild("Legendary Sword Dealer")
+                if dealer then
+                    SwordDealerStatus:SetContent("Sword Dealer: Đang xuất hiện 🟢")
+                else
+                    SwordDealerStatus:SetContent("Sword Dealer: 🔴")
+                end
+            end)
+        end
+    end)
+else
+    SwordDealerStatus:SetContent("Sword Dealer: chỉ hiện ở Sea 2")
+end
+
+-- Barista Cousin (merchant bán fruit hiếm, xuất hiện ngẫu nhiên)
+local BaristaCousinStatus = Tabs.Status:CreateParagraph("BaristaCousinStatus", {
+    Title = "Barista Cousin",
+    Content = "Loading..."
+})
+
+spawn(function()
+    while task.wait(1) do
+        pcall(function()
+            local npcFolder = workspace:FindFirstChild("NPCs")
+            local barista = npcFolder and npcFolder:FindFirstChild("Barista Cousin")
+            if barista then
+                local rarity = barista:GetAttribute("Rarity") or barista:GetAttribute("Legendary")
+                local rarityText = rarity and "LEGENDARY" or "Rare"
+                BaristaCousinStatus:SetContent("Barista Cousin: [ " .. rarityText .. " ] 🟢")
+            else
+                BaristaCousinStatus:SetContent("Barista Cousin: 🔴")
+            end
+        end)
+    end
+end)
+
+-- Berries đang rơi trên map
+-- Lưu ý: đường dẫn workspace.Berries là giả định theo cấu trúc phổ biến,
+-- Nam kiểm tra lại tên folder thật trong game nếu mục này không hiện đúng.
+local BerriesStatus = Tabs.Status:CreateParagraph("BerriesStatus", {
+    Title = "Berries",
+    Content = "Loading..."
+})
+
+spawn(function()
+    while task.wait(1) do
+        pcall(function()
+            local folder = workspace:FindFirstChild("Berries")
+            local dropped = {}
+            if folder then
+                for _, item in pairs(folder:GetChildren()) do
+                    local amount = item:GetAttribute("Amount") or item:GetAttribute("Value")
+                    if amount then
+                        table.insert(dropped, tostring(amount))
+                    end
+                end
+            end
+            if #dropped == 0 then
+                BerriesStatus:SetContent("Berries: 🔴")
+            else
+                BerriesStatus:SetContent("Berries: #" .. #dropped .. " [ " .. table.concat(dropped, ", ") .. " ] 🟢")
+            end
+        end)
+    end
+end)
+
+-- Số người chơi trong server
+local PlayersStatus = Tabs.Status:CreateParagraph("PlayersStatus", {
+    Title = "Players",
+    Content = "Loading..."
+})
+
+spawn(function()
+    while task.wait(2) do
+        pcall(function()
+            PlayersStatus:SetContent(#Players:GetPlayers() .. "/12")
+        end)
+    end
+end)
+
+-- Private Server
+local PrivateServerStatus = Tabs.Status:CreateParagraph("PrivateServerStatus", {
+    Title = "Private Server",
+    Content = "Loading..."
+})
+
+pcall(function()
+    local isPrivate = game.PrivateServerOwnerId ~= 0
+    PrivateServerStatus:SetContent(isPrivate and "Có 🟢" or "Không 🔴")
+end)
+
+--------------------------------------------------------------------
 -- TAB QUESTS: AUTO SEA 2 & AUTO SEA 3 (TRAVEL)
 -- Dùng chung fly / attack / TweenToPos của hệ thống farm
 --------------------------------------------------------------------
