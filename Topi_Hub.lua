@@ -2891,89 +2891,246 @@ local function AttackEnemy(enemy)
     end
 end
 
---// ===================== BRING MOB (logic mới, thay toàn bộ logic cũ) =====================
+--// ===================== BRING MOB (logic mới) =====================
 -- Toggle: getgenv().BringMob (Settings UI "Bring Mob")
--- Slider: getgenv().BringMobCount (Settings UI "Số mob bring", 2 - 6)
---   Chọn N => tổng nhóm mob tại điểm farm = N (tính luôn mob đang farm),
---   tức bring thêm (N - 1) mob cùng loại gần player nhất về vị trí mob farm.
--- Vị trí bring (PosMon) = vị trí HIỆN TẠI (live) của mob đang farm (CurrentTargetMob),
--- vì Topi_Hub không dùng hệ Mon/MonFarm/PosMon/CheckQuest như bản gốc được đưa.
+-- Số lượng bring: phụ thuộc vào slider getgenv().BringMobCount (Settings UI "Số mob bring", 2-6,
+--   tổng nhóm mob tại điểm farm tính luôn mob đang farm) => MaxBringMobs = BringMobCount - 1
+-- Target được chọn theo tên mob trong getgenv().CurrentBringMob, tự dò lại nếu mob cũ chết/mất;
+-- nếu chưa set thủ công thì lấy theo mob đang farm (getgenv().CurrentTargetMob)
 --------------------------------------------------------------------
 getgenv().BringMobCount = getgenv().BringMobCount or 2
 
-spawn(function()
-    while task.wait() do
-        pcall(function()
-            if not getgenv().BringMob then return end
-
-            local targetMob = getgenv().CurrentTargetMob
-            if not targetMob or not targetMob.Parent then return end
-
-            local targetHRP = targetMob:FindFirstChild("HumanoidRootPart")
-            local targetHum = targetMob:FindFirstChild("Humanoid")
-            if not targetHRP or not targetHum or targetHum.Health <= 0 then return end
-
-            local myChar = player.Character
-            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            if not myHRP then return end
-
-            local mobName = targetMob.Name
-            local PosMon = targetHRP.CFrame -- mốc bring = vị trí hiện tại của mob farm
-
-            -- Chọn N mob gần player nhất trong tầm 320 để bring (N = slider - 1)
-            local bringCap = math.clamp((getgenv().BringMobCount or 2) - 1, 1, 5)
-            local candidates = {}
-            for _, v in pairs(workspace.Enemies:GetChildren()) do
-                if v ~= targetMob
-                and v:FindFirstChild("Humanoid")
-                and v:FindFirstChild("HumanoidRootPart")
-                and v.Humanoid.Health > 0
-                and v.Name == mobName then
-                    local dist = (v.HumanoidRootPart.Position - myHRP.Position).Magnitude
-                    if dist <= 320 then
-                        table.insert(candidates, {mob = v, dist = dist})
-                    end
-                end
-            end
-            if #candidates == 0 then return end
-
-            table.sort(candidates, function(a, b) return a.dist < b.dist end)
-
-            for i = 1, math.min(bringCap, #candidates) do
-                local v = candidates[i].mob
-                pcall(function()
-                    -- Đặc biệt cho Factory Staff
-                    if v.Name == "Factory Staff" then
-                        if (v.HumanoidRootPart.Position - PosMon.Position).Magnitude <= 250 then
-                            v.Head.CanCollide = false
-                            v.HumanoidRootPart.CanCollide = false
-                            v.HumanoidRootPart.Size = Vector3.new(60, 60, 60)
-                            v.HumanoidRootPart.CFrame = PosMon
-
-                            if v.Humanoid:FindFirstChild("Animator") then
-                                v.Humanoid.Animator:Destroy()
-                            end
-                            sethiddenproperty(player, "SimulationRadius", math.huge)
-                        end
-                    else
-                        -- Bring bình thường
-                        if (v.HumanoidRootPart.Position - PosMon.Position).Magnitude <= 320 then
-                            v.HumanoidRootPart.Size = Vector3.new(60, 60, 60)
-                            v.HumanoidRootPart.CFrame = PosMon
-                            v.HumanoidRootPart.CanCollide = false
-                            v.Head.CanCollide = false
-
-                            if v.Humanoid:FindFirstChild("Animator") then
-                                v.Humanoid.Animator:Destroy()
-                            end
-                            sethiddenproperty(player, "SimulationRadius", math.huge)
-                        end
-                    end
-                end)
-            end
-        end)
+local function GetMobRoot(v)
+    local root = v:FindFirstChild("HumanoidRootPart")
+    if root then return root end
+    if v:IsA("Model") then
+        return v.PrimaryPart
     end
-end)
+    return nil
+end
+
+function BringEnemy()
+    -- BringMob phải dùng chung cho TẤT CẢ logic farm:
+    -- Level / Bone / Kata / Aura / Select Mob / Material / Dungeon / Elite...
+    -- Không phụ thuộc CurrentFarmTarget vì biến đó trước đây chỉ được cập nhật
+    -- trong chính vòng BringEnemy -> dễ bị nil ở các mode farm khác.
+
+    if not getgenv().BringMob then
+        getgenv().CurrentFarmTarget = nil
+        return
+    end
+
+    local enemies = workspace:FindFirstChild("Enemies")
+    if not enemies then
+        getgenv().CurrentFarmTarget = nil
+        return
+    end
+
+    local playerRoot = getRoot()
+    if not playerRoot then
+        return
+    end
+
+    ----------------------------------------------------------------
+    -- LẤY TÊN MOB TỪ LOGIC FARM ĐANG CHẠY
+    -- Ưu tiên CurrentBringMob nếu người dùng đã set thủ công.
+    -- Nếu không có -> lấy CurrentTargetMob của BẤT KỲ farm mode nào.
+    ----------------------------------------------------------------
+    local MobName = getgenv().CurrentBringMob
+
+    local farmTarget = getgenv().CurrentTargetMob
+    if not MobName and farmTarget and farmTarget.Parent then
+        local hum = farmTarget:FindFirstChildOfClass("Humanoid")
+        local hrp = GetMobRoot(farmTarget)
+        if hum and hrp and hum.Health > 0 then
+            MobName = farmTarget.Name
+        end
+    end
+
+    if not MobName or MobName == "" then
+        getgenv().CurrentFarmTarget = nil
+        return
+    end
+
+    ----------------------------------------------------------------
+    -- THU THẬP TOÀN BỘ MOB CÙNG TÊN ĐANG SỐNG.
+    -- Không dùng CurrentFarmTarget làm "nguồn sự thật".
+    ----------------------------------------------------------------
+    local validMobs = {}
+    local sum = Vector3.zero
+    local count = 0
+
+    for _, mob in ipairs(enemies:GetChildren()) do
+        if mob.Name == MobName then
+            local hum = mob:FindFirstChildOfClass("Humanoid")
+            local hrp = GetMobRoot(mob)
+
+            if hum and hrp and hum.Health > 0 and hrp:IsDescendantOf(workspace) then
+                table.insert(validMobs, {
+                    model = mob,
+                    root = hrp,
+                    humanoid = hum,
+                    position = hrp.Position
+                })
+
+                sum = sum + hrp.Position
+                count = count + 1
+            end
+        end
+    end
+
+    if count == 0 then
+        getgenv().CurrentFarmTarget = nil
+        return
+    end
+
+    ----------------------------------------------------------------
+    -- VỊ TRÍ BRING = VỊ TRÍ TRUNG BÌNH CỦA TẤT CẢ MOB CÙNG TÊN.
+    -- Đây là điểm gom chung nên không còn phụ thuộc mob nào được
+    -- GetNearestEnemy() chọn trước.
+    ----------------------------------------------------------------
+    local BringPosition = sum / count
+
+    -- Giữ lại target gần player nhất để các logic khác nếu cần có thể
+    -- đọc CurrentFarmTarget, nhưng BringEnemy không còn phụ thuộc nó.
+    local nearestTarget = nil
+    local nearestDist = math.huge
+
+    for _, info in ipairs(validMobs) do
+        local d = (info.position - playerRoot.Position).Magnitude
+        if d < nearestDist then
+            nearestDist = d
+            nearestTarget = info.model
+        end
+    end
+
+    getgenv().CurrentFarmTarget = nearestTarget
+
+    ----------------------------------------------------------------
+    -- SimulationRadius: giúp client có quyền mô phỏng mob gần farm hơn.
+    -- Một số executor không hỗ trợ sethiddenproperty -> pcall để không
+    -- làm chết vòng bring.
+    ----------------------------------------------------------------
+    pcall(function()
+        sethiddenproperty(player, "SimulationRadius", math.huge)
+    end)
+
+    ----------------------------------------------------------------
+    -- BRING COUNT:
+    -- Slider 2-6 vẫn được giữ nguyên.
+    -- Mob gần điểm trung bình nhất sẽ được ưu tiên.
+    ----------------------------------------------------------------
+    local maxBring = math.clamp(
+        math.floor(tonumber(getgenv().BringMobCount) or 2) - 1,
+        1,
+        5
+    )
+
+    table.sort(validMobs, function(a, b)
+        return (a.position - BringPosition).Magnitude
+            < (b.position - BringPosition).Magnitude
+    end)
+
+    local brought = 0
+
+    for _, info in ipairs(validMobs) do
+        if brought >= maxBring then
+            break
+        end
+
+        local mob = info.model
+        local hrp = info.root
+        local hum = info.humanoid
+
+        if mob ~= nearestTarget
+            and mob.Parent
+            and hrp.Parent
+            and hum.Health > 0 then
+
+            -- CFrame + vận tốc = giữ mob ổn định hơn khi server/client
+            -- cập nhật Physics giữa các Heartbeat.
+            pcall(function()
+                hrp.CFrame = CFrame.new(BringPosition)
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+                hrp.CanCollide = false
+            end)
+
+            pcall(function()
+                hum.WalkSpeed = 0
+                hum.JumpPower = 0
+                hum.AutoRotate = false
+            end)
+
+            brought = brought + 1
+        end
+    end
+
+    ----------------------------------------------------------------
+    -- ÉP LẠI target chính về tâm trung bình nếu nó bị lệch quá xa.
+    -- Làm nhẹ nhàng, không phá target của farm.
+    ----------------------------------------------------------------
+    if nearestTarget and nearestTarget.Parent then
+        local targetRoot = GetMobRoot(nearestTarget)
+        local targetHum = nearestTarget:FindFirstChildOfClass("Humanoid")
+
+        if targetRoot and targetHum and targetHum.Health > 0 then
+            pcall(function()
+                targetRoot.CFrame = CFrame.new(BringPosition)
+                targetRoot.AssemblyLinearVelocity = Vector3.zero
+                targetRoot.AssemblyAngularVelocity = Vector3.zero
+                targetRoot.CanCollide = false
+            end)
+
+            pcall(function()
+                targetHum.WalkSpeed = 0
+                targetHum.JumpPower = 0
+                targetHum.AutoRotate = false
+            end)
+        end
+    end
+end
+
+-- Heartbeat ổn định hơn task.wait() thuần vì Bring cần chạy đồng bộ
+-- với việc mob spawn / respawn / di chuyển.
+local _bringHeartbeatConn = nil
+
+local function StartGlobalBringMob()
+    if _bringHeartbeatConn then
+        _bringHeartbeatConn:Disconnect()
+        _bringHeartbeatConn = nil
+    end
+
+    _bringHeartbeatConn = RunService.Heartbeat:Connect(function()
+        if not getgenv().BringMob then
+            getgenv().CurrentFarmTarget = nil
+            return
+        end
+
+        -- Chỉ cần có một farm mode đang có target là Bring hoạt động.
+        -- Không khóa vào FarmMode dropdown.
+        local hasFarmTarget = getgenv().CurrentTargetMob ~= nil
+        local anyFarm = getgenv().IsFarming
+            or getgenv().FarmLevel
+            or getgenv().FarmBone
+            or getgenv().FarmKata
+            or getgenv().FarmAura
+            or getgenv().FarmPhaBinh
+            or getgenv().AutoMaterial
+            or getgenv().FarmSelectMob
+            or getgenv().FarmDungeon
+            or getgenv().FarmEliteHunt
+
+        if anyFarm and hasFarmTarget then
+            pcall(BringEnemy)
+        else
+            getgenv().CurrentFarmTarget = nil
+        end
+    end)
+end
+
+StartGlobalBringMob()
+
 
 
 --// ================= FLY =================
