@@ -2766,10 +2766,6 @@ getgenv()._BringCycleConnections = getgenv()._BringCycleConnections or setmetata
 
 local BRING_NEW_FARM_BLOCK_RADIUS = 50
 
-local function GetBringCycleLimit()
-    return math.clamp(math.floor(tonumber(getgenv().BringMobCount) or 2), 2, 6)
-end
-
 local function ResetBringCycle()
     getgenv()._BringCycleKilled = 0
     getgenv()._BringCycleSeen = setmetatable({}, {__mode = "k"})
@@ -2796,7 +2792,10 @@ local function IsBringCycleBlockedMob(mob)
 end
 
 local function FinishBringCycleAt(pos)
-    getgenv()._BringCycleKilled = GetBringCycleLimit()
+    local cycleCount = tonumber(getgenv().BringMobCount) or 2
+    cycleCount = math.floor(cycleCount)
+    if cycleCount < 2 then cycleCount = 2 elseif cycleCount > 6 then cycleCount = 6 end
+    getgenv()._BringCycleKilled = cycleCount
     getgenv()._BringCycleBlockedPos = pos
     getgenv().CurrentTargetMob = nil
     getgenv().CurrentFarmTarget = nil
@@ -2822,12 +2821,30 @@ local function TrackBringCycleMob(mob, mobName)
             getgenv()._BringCycleSeen[mob] = nil
             getgenv()._BringCycleKilled = (getgenv()._BringCycleKilled or 0) + 1
 
-            local limit = GetBringCycleLimit()
+            local limit = tonumber(getgenv().BringMobCount) or 2
+            limit = math.floor(limit)
+            if limit < 2 then limit = 2 elseif limit > 6 then limit = 6 end
             if getgenv()._BringCycleKilled >= limit then
-                local root = GetMobRoot(mob)
+                -- Resolve the root directly inside the deferred callback.
+                -- Do not call GetMobRoot here because this callback can run
+                -- before/after that local helper is available in the chunk.
+                local root = nil
+                if mob and mob.Parent then
+                    root = mob:FindFirstChild("HumanoidRootPart")
+                    if not root and mob:IsA("Model") then
+                        root = mob.PrimaryPart
+                    end
+                end
                 local pos = root and root.Position or getgenv()._BringLookPos
                 if pos then
-                    FinishBringCycleAt(pos)
+                    -- Inline FinishBringCycleAt here. This is a deferred
+                    -- Humanoid.Died callback, so it must not call a local
+                    -- helper from the outer chunk.
+                    getgenv()._BringCycleKilled = limit
+                    getgenv()._BringCycleBlockedPos = pos
+                    getgenv().CurrentTargetMob = nil
+                    getgenv().CurrentFarmTarget = nil
+                    getgenv()._BringLookPos = nil
                 end
             end
         end
@@ -2916,7 +2933,10 @@ getgenv().BringMobCount = getgenv().BringMobCount or 2
 -- Chỉ cập nhật lại khi mob farm hiện tại đi ra ngoài phạm vi
 -- BRING_LOOKPOS_TOLERANCE stud tính từ look pos cũ, tránh việc farm
 -- liên tục đổi mob gần nhất làm look pos (và do đó cả mob + player) nhảy lung tung.
-local BRING_LOOKPOS_TOLERANCE = 10
+local BRING_LOOKPOS_TOLERANCE = 5
+local BRING_INTERVAL = 0.2
+getgenv()._NextBringAt = getgenv()._NextBringAt or 0
+getgenv()._V4BringLastMode = getgenv()._V4BringLastMode or false
 getgenv()._BringLookPos = getgenv()._BringLookPos or nil
 
 local function GetMobRoot(v)
@@ -2926,6 +2946,60 @@ local function GetMobRoot(v)
         return v.PrimaryPart
     end
     return nil
+end
+
+
+local function IsDropdownFarmModeActive()
+    -- V4 bring is intentionally restricted to the dropdown/default farm mode.
+    -- Other farm modes use normal bring.
+    return getgenv().IsFarming == true
+end
+
+local function IsCyborgV4Active()
+    local player = game:GetService("Players").LocalPlayer
+    local data = player and player:FindFirstChild("Data")
+    local race = data and data:FindFirstChild("Race")
+    if not race or race.Value ~= "Cyborg" then
+        return false
+    end
+
+    local raceTransformed = data:FindFirstChild("RaceTransformed")
+    if raceTransformed and raceTransformed:IsA("BoolValue") then
+        return raceTransformed.Value
+    end
+
+    local attrs = {
+        "RaceTransformed",
+        "V4Active",
+        "RaceV4",
+    }
+    for _, name in ipairs(attrs) do
+        local value = player:GetAttribute(name)
+        if value == true then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function IsV4BringAllowed()
+    return IsDropdownFarmModeActive() and IsCyborgV4Active()
+end
+
+local function BringModelToLookPos(mob, targetPos)
+    if not mob or not mob.Parent then return end
+
+    local hum = mob:FindFirstChildOfClass("Humanoid")
+    local root = GetMobRoot(mob)
+    if not hum or not root or hum.Health <= 0 then return end
+    if not root:IsDescendantOf(workspace) then return end
+
+    pcall(function()
+        root.CFrame = CFrame.new(targetPos)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end)
 end
 
 function BringEnemy()
@@ -2938,6 +3012,7 @@ function BringEnemy()
         getgenv().CurrentFarmTarget = nil
         getgenv()._BringLookPos = nil
         ResetBringCycle()
+        getgenv()._NextBringAt = 0
         return
     end
 
@@ -8141,7 +8216,7 @@ AutoLoad()
 -- tạo sau thời điểm require() này nữa.
 --------------------------------------------------------------------
 do
-    local _attackInitOk, _attackInitErr = pcall(function()
+    getgenv()._AttackInitRun = pcall(function()
             local AM_ReplicatedStorage = ReplicatedStorage
             local AM_Workspace         = Workspace
             local AM_Players           = Players
@@ -8319,7 +8394,8 @@ do
             getgenv().AttackFunction = AttackFunction
     end)
 
-    if not _attackInitOk then
-        warn("[Topi_Hub] Attack Module init lỗi, AttackFunction sẽ không hoạt động: " .. tostring(_attackInitErr))
+    if not getgenv()._AttackInitRun then
+        warn("[Topi_Hub] Attack Module init lỗi, AttackFunction sẽ không hoạt động")
     end
+    getgenv()._AttackInitRun = nil
 end
