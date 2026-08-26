@@ -987,7 +987,159 @@ end)
 -- Trả về true nếu đã spawn async (caller KHÔNG gọi _tp thêm),
 --         false nếu bỏ qua (caller tự gọi _tp như bình thường).
 --------------------------------------------------------------------
+
+--------------------------------------------------------------------
+-- USE PORTAL FRUIT TELEPORT
+-- Khi bật:
+--   * bắt buộc fruit = Portal-Portal
+--   * tắt toàn bộ tele trung gian + Reset
+--   * dùng skill C -> Gateway -> click đúng đảo đích
+--------------------------------------------------------------------
+local function PortalFruit_HasPortal()
+    local data = player:FindFirstChild("Data")
+    local df = data and data:FindFirstChild("DevilFruit")
+    return df and df.Value == "Portal-Portal"
+end
+
+local function PortalFruit_GetTool()
+    local char = player.Character
+    if not char then return nil end
+    return char:FindFirstChild("Portal-Portal")
+        or player.Backpack:FindFirstChild("Portal-Portal")
+end
+
+local function PortalFruit_GetIslandName(targetPos)
+    -- Ưu tiên Location thật của game.
+    local name = ResetTP_GetIslandName(targetPos)
+    if name and name ~= "" then
+        return name
+    end
+
+    -- Fallback: tìm Location gần target nhất.
+    local locations = ResetTP_WorldOrigin
+        and ResetTP_WorldOrigin:FindFirstChild("Locations")
+    if locations then
+        local best, bestDist = nil, math.huge
+        for _, loc in ipairs(locations:GetChildren()) do
+            if loc:IsA("BasePart") then
+                local d = (loc.Position - targetPos).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    best = loc.Name
+                end
+            end
+        end
+        if best and bestDist <= 5000 then
+            return best
+        end
+    end
+    return nil
+end
+
+local function PortalFruit_ClickGatewayButton(islandName)
+    local gui = player:FindFirstChild("PlayerGui")
+    local main = gui and gui:FindFirstChild("Main")
+    local gateway = main and main:FindFirstChild("Gateway")
+    if not gateway then return false end
+
+    local deadline = tick() + 3
+    while not gateway.Visible and tick() < deadline do
+        task.wait(0.1)
+    end
+    if not gateway.Visible then return false end
+
+    local content = gateway:FindFirstChild("MainContent")
+    local scroll = content and content:FindFirstChild("ScrollingFrame")
+    if not scroll then return false end
+
+    -- Gateway thường dùng đúng tên Location. Thử thêm vài dạng tên phổ biến.
+    local candidates = {
+        tostring(islandName),
+        tostring(islandName):gsub(" Island$", ""),
+        tostring(islandName):gsub("^Island ", ""),
+    }
+
+    local btn
+    for _, name in ipairs(candidates) do
+        btn = scroll:FindFirstChild(name)
+        if btn and btn:IsA("GuiButton") then break end
+        btn = nil
+    end
+    if not btn then return false end
+
+    local fired = false
+    pcall(function()
+        for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+            pcall(function() conn:Fire() end)
+            pcall(function() if conn.Function then conn.Function() end end)
+            fired = true
+        end
+    end)
+
+    return fired
+end
+
+local function PortalFruit_Use(targetCF)
+    if not getgenv().UsePortalFruitTeleport then return false end
+    if typeof(targetCF) ~= "CFrame" then return false end
+    if not PortalFruit_HasPortal() then return false end
+
+    local islandName = PortalFruit_GetIslandName(targetCF.Position)
+    if not islandName then return false end
+
+    local tool = PortalFruit_GetTool()
+    if not tool then return false end
+
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+
+    -- Dừng tween hiện tại trước khi mở Gateway.
+    if currentTween then
+        pcall(function() currentTween:Cancel() end)
+        currentTween = nil
+    end
+    currentTweenSpeed = 0
+    currentTweenTarget = nil
+
+    pcall(function() hum:EquipTool(tool) end)
+    task.wait(0.1)
+
+    -- Skill C mở Gateway.
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, "C", false, game)
+        VirtualInputManager:SendKeyEvent(false, "C", false, game)
+    end)
+
+    local ok = PortalFruit_ClickGatewayButton(islandName)
+    if ok then
+        task.wait(1)
+        return true
+    end
+
+    return false
+end
+
 local function doIntermediateTeleport(targetCF, speed)
+    -- Portal Fruit có ưu tiên cao nhất: không dùng Reset/Tiki/Portal trung gian.
+    if getgenv().UsePortalFruitTeleport then
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local portalDist = hrp and (targetCF.Position - hrp.Position).Magnitude or 0
+
+        -- Theo logic Portal gốc: chỉ dùng Portal khi quãng đường đủ xa.
+        if portalDist >= INTERMEDIATE_THRESHOLD and PortalFruit_HasPortal() then
+            local used = PortalFruit_Use(targetCF)
+            if used then
+                return true
+            end
+        end
+
+        -- Portal fail / quãng đường ngắn -> tween thẳng.
+        -- Không rơi vào Reset/Tiki/Portal trung gian khác.
+        return false
+    end
+
     -- Đang có một tầng tele trung gian chạy thì giữ nguyên tầng đó.
     if _intermediateRunning then return true end
 
@@ -1357,11 +1509,10 @@ local Tabs = {
 -- Lý do: Fluent-Renewed SetValue() chỉ cập nhật visual, KHÔNG fire Callback.
 -- [FIX] Trước đây chỉ Toggle được lưu vào registry này (_ToggleCBs), nên khi
 -- LoadConfig gọi opt:SetValue() cho Dropdown/Slider, các biến global đứng
--- sau Callback (getgenv().FarmMode, SelectedFarm, FlySpeed, ChooseWP, v.v.)
+-- sau Callback (SelectedFarm, FlySpeed, ChooseWP, v.v.)
 -- KHÔNG BAO GIỜ được set lại — dropdown/slider chỉ đổi hình ảnh trên UI chứ
 -- không áp dụng giá trị đã lưu. Đây chính là nguyên nhân:
---   1) AutoFarm bật lại sau khi load nhưng đứng im (SelectedFarm/FarmMode
---      vẫn là giá trị mặc định vì FarmType/FarmMode dropdown chưa từng fire).
+
 --   2) Dropdown farm mode hiển thị đúng lựa chọn đã lưu (Orbit/Star) nhưng
 --      script vẫn farm theo Up (mặc định) cho đến khi người dùng chọn lại.
 -- Giữ tên biến _ToggleCBs làm alias để không phải sửa các chỗ khác đã dùng.
@@ -1536,15 +1687,11 @@ end
 --------------------------------------------------------------------
 getgenv().BringMob = true           -- Bật tính năng kéo mob lại gần (giúp farm nhanh hơn)
 getgenv().FlySpeed = 280            -- Tốc độ bay (càng cao bay càng nhanh, nhưng dễ bị phát hiện)
-getgenv().FlyHeight = 30            -- (legacy) không dùng nữa — thay bằng FarmDistance/FarmPos
 getgenv().BringMobCount = 2         -- Số mob bring (2-6, gồm cả mob đang farm)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
--- Farm Mode (redz-style): "Up" | "Orbit" | "Star"
-getgenv().FarmMode = "Up"
-getgenv().FarmDistance = 15
-getgenv().FarmPos = Vector3.new(0, 15, 0)
 getgenv().SmoothMode = false
 getgenv().Noclip = false            -- Xuyên tường (tắt va chạm với địa hình)
+getgenv().UsePortalFruitTeleport = false -- Dùng Portal-Portal C để teleport thẳng tới đảo đích
 getgenv().TelePorto = false         -- Portal/intermediate teleport
 getgenv().TeleTiki = true            -- Cho phép dùng Tiki làm trung gian (W3)
 getgenv().ResetTeleportEnabled = false -- Reset teleport [Beta], ưu tiên cao nhất
@@ -1555,7 +1702,7 @@ getgenv().ResetTeleportEnabled = false -- Reset teleport [Beta], ưu tiên cao n
 
 getgenv().IsFarming = false         -- Trạng thái đang farm (true = đang farm, false = dừng)
 getgenv().AutoBusoLoop = false      -- Tự động bật Buso Haki liên tục
-getgenv().FastAttack = false        -- Auto Attack (mac dinh tat)
+getgenv().AutoClick = false         -- Auto Click: tắt = farm chỉ đánh mob; bật = đánh liên tục mob + player
 getgenv().CurrentTargetMob = nil    -- Mob đang được nhắm mục tiêu hiện tại
 
 
@@ -1928,20 +2075,6 @@ _G.SelectWeapon = nil
 
 -- ===== REMOVE CARD-RELATED GLOBALS (AutoPickCard features removed) =====
 
---------------------------------------------------------------------
--- FARM MODE (redz-style): Up / Orbit / Star
---------------------------------------------------------------------
-Tabs.Settings:CreateDropdown("FarmMode", {
-    Title = "Farm Mode",
-    Description = "Up = trên đầu mob | Orbit = bay vòng | Star = nhảy trục X/Z",
-    Values = { "Up", "Orbit", "Star" },
-    Multi = false,
-    Default = 1,
-    Callback = GuardDropdown(function(v)
-        getgenv().FarmMode = v
-    end),
-})
-
 Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
     Description = "Tốc độ bay / tween (0 - 300)",
@@ -1954,322 +2087,96 @@ Tabs.Settings:CreateSlider("SpeedTween", {
     end,
 })
 
-Tabs.Settings:CreateSlider("FarmDistance", {
-    Title = "Farm Distance",
-    Description = "Up: độ cao Y | Orbit: bán kính vòng | Star: lệch ngang",
-    Default = 15,
-    Min = 5,
-    Max = 30,
-    Rounding = 1,
-    Callback = function(v)
-        getgenv().FarmDistance = v
-        getgenv().FarmPos = Vector3.new(0, v, 0)
-    end,
-})
-
+--------------------------------------------------------------------
+-- ATTACK MODULE (thay thế Fast Attack cũ, chuyển từ AttackModule.lua)
+-- Cung cấp AttackFunction(radius, includePlayers) dùng chung cho:
+--   • Farm-only: chỉ attack mob khi có mob farm trong tầm ATTACK_FARM_TRIGGER_RANGE
+--   • Auto Click: attack nền cả mob + player, không cần bật farm
+--------------------------------------------------------------------
+local AttackFunction   -- forward declare để dùng ở loop bên dưới
+local AttackAOE
 
 
 --------------------------------------------------------------------
--- FAST ATTACK (Standalone) — điều khiển bởi toggle Auto Attack
+-- TOGGLE: AUTO CLICK (thay cho Auto Attack cũ)
+-- Tắt (mặc định): không tự attack; khi đang farm thì chỉ attack MOB
+--   (không attack Player Target), và chỉ kích hoạt khi mob farm vào
+--   trong phạm vi ATTACK_FARM_TRIGGER_RANGE stud.
+-- Bật: attack nền cả mob + Player Target, không cần bật farm.
 --------------------------------------------------------------------
-getgenv().FastAttack = getgenv().FastAttack or false
+getgenv().AutoClick = false
 
-local FastAttackModule = {}
-local HitRegistrationModule = {}
-local MainController = {}
-
-do
-    local GameService = game
-    local Players = GameService:GetService("Players")
-    local RunService = GameService:GetService("RunService")
-    local ReplicatedStorage = GameService:GetService("ReplicatedStorage")
-    local Workspace = GameService:GetService("Workspace")
-
-    local LocalPlayer = Players.LocalPlayer
-
-    local function SafeWaitForChild(parent, childName)
-        local success, result = pcall(function()
-            return parent:WaitForChild(childName)
-        end)
-        return result
-    end
-
-    local Enemies = SafeWaitForChild(Workspace, "Enemies") or Instance.new("Folder")
-    local Characters = SafeWaitForChild(Workspace, "Characters") or Instance.new("Folder")
-    local Modules = SafeWaitForChild(ReplicatedStorage, "Modules") or Instance.new("Folder")
-    local Net = SafeWaitForChild(Modules, "Net") or Instance.new("Folder")
-
-    FastAttackModule.Rate = 0.000000002
-    FastAttackModule.Enabled = false
-    FastAttackModule.MaxDistance = 60
-
-    local _faRateRunning = false
-    local _faHBConn = nil
-    local _faCharConn = nil
-
-    local function GetCharacter()
-        local character = LocalPlayer.Character
-        if not character or not character.Parent then
-            character = LocalPlayer.CharacterAdded:Wait()
-        end
-        return character
-    end
-
-    function FastAttackModule.IsAlive(target)
-        local humanoid = target:FindFirstChild("Humanoid")
-        if humanoid and humanoid.Health > 0 then
-            return true
-        end
-        return false
-    end
-
-    function FastAttackModule.GetNearbyTargets(character, folder)
-        if not folder or not folder:IsA("Instance") then
-            return {}
-        end
-        local characterPosition = character:GetPivot().Position
-        local nearbyTargets = {}
-        local children = folder:GetChildren()
-        for i = 1, #children do
-            local target = children[i]
-            if target:IsA("Model") then
-                local humanoid = target:FindFirstChild("Humanoid")
-                local rootPart = target:FindFirstChild("HumanoidRootPart")
-                if humanoid and rootPart and humanoid.Health > 0 and target ~= character then
-                    local distance = (rootPart.Position - characterPosition).Magnitude
-                    if distance <= FastAttackModule.MaxDistance then
-                        table.insert(nearbyTargets, target)
-                    end
-                end
-            end
-        end
-        return nearbyTargets
-    end
-
-    function FastAttackModule.GetTargetParts(targetList)
-        local result = {}
-        local count = #targetList
-        for i = 1, count do
-            local target = targetList[i]
-            local head = target:FindFirstChild("Head") or target.PrimaryPart
-            if head then
-                table.insert(result, {target, head})
-            end
-        end
-        return result
-    end
-
-    function FastAttackModule.GetAllTargets(character)
-        local enemies = FastAttackModule.GetNearbyTargets(character, Enemies)
-        local otherCharacters = FastAttackModule.GetNearbyTargets(character, Characters)
-        local allTargets = {}
-        for i = 1, #enemies do
-            table.insert(allTargets, enemies[i])
-        end
-        for i = 1, #otherCharacters do
-            table.insert(allTargets, otherCharacters[i])
-        end
-        return allTargets
-    end
-
-    function FastAttackModule.ExecuteFastAttack()
-        if not FastAttackModule.Enabled then return end
-        local character = GetCharacter()
-        if not character then return end
-        local tool = character:FindFirstChildOfClass("Tool")
-        if not tool then return end
-        local targets = FastAttackModule.GetAllTargets(character)
-        if #targets < 1 then return end
-        local targetParts = FastAttackModule.GetTargetParts(targets)
-        if #targetParts < 1 then return end
-        local attackRemote = Net:FindFirstChild("RE/RegisterAttack")
-        local hitRemote = Net:FindFirstChild("RE/RegisterHit")
-        if attackRemote and hitRemote then
-            pcall(function()
-                attackRemote:FireServer(FastAttackModule.Rate)
-                local targetHead = targetParts[1][2]
-                hitRemote:FireServer(targetHead, targetParts)
-            end)
-        end
-    end
-
-    local AttackRemoteTarget
-    local AttackRemoteId
-
-    local function InitializeHitRegistration()
-        local foldersToCheck = {
-            ReplicatedStorage:FindFirstChild("Util"),
-            ReplicatedStorage:FindFirstChild("Common"),
-            ReplicatedStorage:FindFirstChild("Remotes"),
-            ReplicatedStorage:FindFirstChild("Assets"),
-            ReplicatedStorage:FindFirstChild("FX")
-        }
-        for _, folder in ipairs(foldersToCheck) do
-            if folder and folder:IsA("Instance") then
-                local children = folder:GetChildren()
-                for _, child in ipairs(children) do
-                    if child:IsA("RemoteEvent") and child:GetAttribute("Id") then
-                        AttackRemoteTarget = child
-                        AttackRemoteId = child:GetAttribute("Id")
-                    end
-                end
-                folder.ChildAdded:Connect(function(child)
-                    if child:IsA("RemoteEvent") and child:GetAttribute("Id") then
-                        AttackRemoteTarget = child
-                        AttackRemoteId = child:GetAttribute("Id")
-                    end
-                end)
-            end
-        end
-    end
-
-    InitializeHitRegistration()
-
-    function HitRegistrationModule.Execute()
-        if not FastAttackModule.Enabled then return end
-        local character = GetCharacter()
-        if not character then return end
-        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-        if not humanoidRootPart then return end
-        local hitTargets = {}
-        local function ScanFolder(folder)
-            if not folder or not folder:IsA("Instance") then return end
-            local children = folder:GetChildren()
-            for i = 1, #children do
-                local target = children[i]
-                if target:IsA("Model") then
-                    local humanoid = target:FindFirstChild("Humanoid")
-                    local rootPart = target:FindFirstChild("HumanoidRootPart")
-                    if humanoid and rootPart and humanoid.Health > 0 and target ~= character then
-                        local distance = (rootPart.Position - humanoidRootPart.Position).Magnitude
-                        if distance <= FastAttackModule.MaxDistance then
-                            local targetChildren = target:GetChildren()
-                            for _, child in ipairs(targetChildren) do
-                                if child:IsA("BasePart") then
-                                    table.insert(hitTargets, {target, child})
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        ScanFolder(Enemies)
-        ScanFolder(Characters)
-        local tool = character:FindFirstChildOfClass("Tool")
-        if #hitTargets > 0 and tool and (tool:GetAttribute("WeaponType") == "Melee" or tool:GetAttribute("WeaponType") == "Sword") then
-            pcall(function()
-                local seed = Modules.Net.seed:InvokeServer()
-                local attackRemote = Net:FindFirstChild("RE/RegisterAttack")
-                local hitRemote = Net:FindFirstChild("RE/RegisterHit")
-                if attackRemote and hitRemote then
-                    attackRemote:FireServer()
-                    local targetHead = hitTargets[1][1]:FindFirstChild("Head")
-                    if not targetHead then return end
-                    hitRemote:FireServer(targetHead, hitTargets, {})
-                    if AttackRemoteTarget then
-                        local remoteCode = "RE/RegisterHit"
-                        local encryptionKey = math.floor(Workspace:GetServerTimeNow() / 10 % 10) + 1
-                        local encodedString = string.gsub(remoteCode, ".", function(char)
-                            return string.char(bit32.bxor(string.byte(char), encryptionKey))
-                        end)
-                        local finalId = bit32.bxor(AttackRemoteId + 909090, seed * 2)
-                        cloneref(AttackRemoteTarget):FireServer(
-                            encodedString,
-                            finalId,
-                            targetHead,
-                            hitTargets
-                        )
-                    end
-                end
-            end)
-        end
-    end
-
-    local function DisableCameraShake()
-        pcall(function()
-            local cameraModule = require(ReplicatedStorage.Util.CameraShaker)
-            cameraModule:Stop()
-        end)
-    end
-
-    local function StartMainLoops()
-        if not _faRateRunning then
-            _faRateRunning = true
-            task.spawn(function()
-                while FastAttackModule.Enabled do
-                    task.wait(FastAttackModule.Rate)
-                    if not FastAttackModule.Enabled then break end
-                    pcall(FastAttackModule.ExecuteFastAttack)
-                end
-                _faRateRunning = false
-            end)
-        end
-        if _faHBConn then
-            pcall(function() _faHBConn:Disconnect() end)
-            _faHBConn = nil
-        end
-        _faHBConn = RunService.Heartbeat:Connect(function()
-            if not FastAttackModule.Enabled then
-                if _faHBConn then
-                    pcall(function() _faHBConn:Disconnect() end)
-                    _faHBConn = nil
-                end
-                return
-            end
-            pcall(HitRegistrationModule.Execute)
-        end)
-    end
-
-    function MainController.Start()
-        if FastAttackModule.Enabled then return end
-        FastAttackModule.Enabled = true
-        getgenv().FastAttack = true
-        pcall(DisableCameraShake)
-        StartMainLoops()
-        if not _faCharConn then
-            _faCharConn = LocalPlayer.CharacterAdded:Connect(function()
-                -- keep running after respawn; loops already check Enabled flag
-            end)
-        end
-        print("Fast Attack System Started!")
-    end
-
-    function MainController.Stop()
-        FastAttackModule.Enabled = false
-        getgenv().FastAttack = false
-        if _faHBConn then
-            pcall(function() _faHBConn:Disconnect() end)
-            _faHBConn = nil
-        end
-        -- rate loop exits itself when Enabled = false
-        print("Fast Attack System Stopped!")
-    end
-
-    getgenv()._startFastAttackFn = MainController.Start
-    getgenv()._stopFastAttackFn = MainController.Stop
-end
-
---------------------------------------------------------------------
--- TOGGLE: AUTO ATTACK
--- Bật: loop kích hoạt Fast Attack. Tắt: hủy / dừng attack.
---------------------------------------------------------------------
-Tabs.Settings:CreateToggle("Initialize", {
-    Title = "Auto Attack",
+Tabs.Settings:CreateToggle("AutoClick", {
+    Title = "Auto Click",
+    Description = "Bật: tự attack nền cả mob + player, không cần farm. Tắt: chỉ attack mob khi đang farm và mob trong tầm.",
     Default = false,
     Callback = function(v)
-        getgenv().FastAttack = v
-        if v then
-            if getgenv()._startFastAttackFn then
-                getgenv()._startFastAttackFn()
-            end
-        else
-            if getgenv()._stopFastAttackFn then
-                getgenv()._stopFastAttackFn()
-            end
-        end
+        getgenv().AutoClick = v
     end
 })
+
+--------------------------------------------------------------------
+-- ATTACK LOOP: điều phối khi nào gọi AttackFunction
+--------------------------------------------------------------------
+local ATTACK_FARM_TRIGGER_RANGE = 100
+local ATTACK_HIT_RADIUS = 30
+local _attackHBConn = nil
+
+local function IsAnyFarmModeActive()
+    return getgenv().IsFarming
+        or getgenv().FarmLevel
+        or getgenv().FarmBone
+        or getgenv().FarmKata
+        or getgenv().FarmAura
+        or getgenv().FarmPhaBinh
+        or getgenv().AutoMaterial
+        or getgenv().FarmSelectMob
+        or getgenv().FarmDungeon
+        or getgenv().FarmEliteHunt
+end
+
+local function StartAttackLoop()
+    if _attackHBConn then
+        _attackHBConn:Disconnect()
+        _attackHBConn = nil
+    end
+
+    _attackHBConn = RunService.Heartbeat:Connect(function()
+        if getgenv().AutoClick then
+            -- Auto Click: attack nền cả mob + player, không cần farm.
+            pcall(AttackFunction, ATTACK_HIT_RADIUS, true)
+            return
+        end
+
+        -- Auto Click TẮT:
+        -- chỉ attack MOB đang được farm, tuyệt đối không quét/đánh Player.
+        if not IsAnyFarmModeActive() then return end
+
+        local farmTarget = getgenv().CurrentTargetMob
+        if not farmTarget or not farmTarget.Parent then return end
+
+        -- Chỉ chấp nhận target nằm trong Workspace.Enemies.
+        -- Như vậy kể cả CurrentTargetMob bị gán nhầm sang Character của player
+        -- thì Auto Click tắt vẫn không thể attack player.
+        local enemiesFolder = Workspace:FindFirstChild("Enemies")
+        if not enemiesFolder or not farmTarget:IsDescendantOf(enemiesFolder) then return end
+
+        local hum = farmTarget:FindFirstChildOfClass("Humanoid")
+        local hrp = farmTarget:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp or hum.Health <= 0 then return end
+
+        local charRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if not charRoot then return end
+
+        local dist = (hrp.Position - charRoot.Position).Magnitude
+        if dist <= ATTACK_FARM_TRIGGER_RANGE then
+            -- false = chỉ mob, không bao giờ quét Workspace.Characters.
+            pcall(AttackFunction, ATTACK_HIT_RADIUS, false)
+        end
+    end)
+end
+
+StartAttackLoop()
 
 Tabs.Settings:CreateToggle("BringMob", {
     Title = "Bring Mob",
@@ -2281,11 +2188,11 @@ Tabs.Settings:CreateToggle("BringMob", {
 
 Tabs.Settings:CreateSlider("BringMobCount", {
     Title = "Số mob bring",
-    Description = "Tổng số mob gom về điểm farm, bao gồm cả mob đang farm (2 - 6)",
+    Description = "2-6: số mob bring và số mob cần kill trước khi tìm farm mới",
     Default = 2,
     Min = 2,
     Max = 6,
-    Rounding = 1,
+    Rounding = 0,
     Callback = function(v)
         getgenv().BringMobCount = v
     end,
@@ -2358,6 +2265,56 @@ end)
 --      spam teleport đến đảo trung gian gần đích nhất, rồi mới tween đi.
 -- Tắt: tween thẳng đến đích, không tele trung gian.
 --------------------------------------------------------------------
+local PortalFruitTeleportToggle
+PortalFruitTeleportToggle = Tabs.Settings:CreateToggle("UsePortalFruitTeleport", {
+    Title = "Use PortalFruit Teleport",
+    Description = "Bật: dùng Portal-Portal để teleport thẳng tới đảo cần, đồng thời tắt TelePorto/Tiki/Reset.",
+    Default = false,
+    Callback = function(v)
+        if not v then
+            getgenv().UsePortalFruitTeleport = false
+            return
+        end
+
+        if not PortalFruit_HasPortal() then
+            getgenv().UsePortalFruitTeleport = false
+            task.defer(function()
+                pcall(function()
+                    PortalFruitTeleportToggle:SetValue(false)
+                end)
+            end)
+            Library:Notify({
+                Title = "Portal Teleport",
+                Content = "Fruit is not Portal",
+                Duration = 4
+            })
+            return
+        end
+
+        getgenv().UsePortalFruitTeleport = true
+
+        -- Portal Fruit độc quyền logic teleport.
+        getgenv().TelePorto = false
+        getgenv().TeleTiki = false
+        getgenv().ResetTeleportEnabled = false
+
+        pcall(function()
+            -- Tắt UI tương ứng nếu toggle đã tồn tại.
+            -- Không gọi callback vòng lặp vì SetValue chỉ cập nhật trạng thái.
+            local tp = Library.Options and Library.Options.TelePorto
+            if tp then tp:SetValue(false) end
+        end)
+        pcall(function()
+            local tiki = Library.Options and Library.Options.TeleTiki
+            if tiki then tiki:SetValue(false) end
+        end)
+        pcall(function()
+            local reset = Library.Options and Library.Options.ResetTeleportBeta
+            if reset then reset:SetValue(false) end
+        end)
+    end
+})
+
 Tabs.Settings:CreateToggle("TelePorto", {
     Title = "Teleport Porto",
     Description = "Bật: dùng tele trung gian khi tween xa (> 3000 stud). Tắt: tween thẳng không tele trung gian.",
@@ -2775,66 +2732,114 @@ local function FlyMove(_, cf, speed) _tp(cf, speed) end
 local function TweenObject(_, cf, speed) _tp(cf, speed) end
 
 --------------------------------------------------------------------
--- FARM MODE (redz-style): Up / Orbit / Star
--- Thay thế logic height cũ (CalculateHeight / Y cố định theo weapon)
+-- FARM STAND POSITION
+-- Dùng mặc định từ FarmStandPosition: Weapon = (7,20,0),
+-- Blox Fruit = (-7,YPosFruit,0). Không còn Farm Mode / Farm Distance.
 --------------------------------------------------------------------
-local _orbitAngle = 0
-local _orbitLastTick = tick()
-local _starAxis = Vector3.new(0, 8, 15)
-local _starDebounce = 0
-
-local function GetNextAxis()
-    if tick() - _starDebounce <= 0.4 then
-        return _starAxis
-    end
-    local dist = getgenv().FarmDistance or 15
-    local axisName = math.random() <= 0.5 and "xAxis" or "zAxis"
-    local sign = math.random() <= 0.5 and 1 or -1
-    local axis = Vector3[axisName] * (sign * dist) + Vector3.yAxis * 8
-    _starAxis = axis
-    _starDebounce = tick()
-    return axis
-end
-
--- Trả về CFrame đứng farm quanh mob theo mode hiện tại
 local function GetFarmCFrame(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return nil end
-    local mobHRP = mob.HumanoidRootPart
-    local mobPos = mobHRP.Position
-    local mobCF  = mobHRP.CFrame
 
-    local lookRaw  = Vector3.new(mobCF.LookVector.X, 0, mobCF.LookVector.Z)
-    local lookFlat = lookRaw.Magnitude > 0.01 and lookRaw.Unit or Vector3.new(0, 0, 1)
+    local mobCF = mob.HumanoidRootPart.CFrame
+    local settings = getgenv().Settings or {}
+    local weapon = settings["Select Weapon"] or "Melee"
 
-    local mode = getgenv().FarmMode or "Up"
-    local dist = getgenv().FarmDistance or 15
-
-    if mode == "Orbit" then
-        -- Bay vòng tròn quanh mob, cao Y = 8, bán kính = FarmDistance
-        -- Chỉ set vị trí (giống redz) — không ép hướng mặt về mob
-        local now = tick()
-        local dt = now - _orbitLastTick
-        _orbitLastTick = now
-        if dt > 0.5 then dt = 0.05 end -- tránh nhảy góc khi pause lâu
-        local speed = 3.5
-        if getgenv().SmoothMode then
-            -- SmoothMode: cập nhật chậm hơn (giống redz task.wait 0.1)
-            _orbitAngle = _orbitAngle + speed * math.min(dt, 0.1)
-        else
-            _orbitAngle = _orbitAngle + speed * dt
-        end
-        local offset = Vector3.new(math.cos(_orbitAngle) * dist, 8, math.sin(_orbitAngle) * dist)
-        return CFrame.new(mobPos + offset)
-    elseif mode == "Star" then
-        -- Nhảy trục ±X / ±Z ngẫu nhiên quanh mob (đổi mỗi 0.4s)
-        -- Chỉ set vị trí (giống redz) — không ép hướng mặt về mob
-        return mobCF + GetNextAxis()
-    else
-        -- Up (mặc định): đứng trên mob theo FarmPos (0, FarmDistance, 0)
-        local farmPos = getgenv().FarmPos or Vector3.new(0, dist, 0)
-        local targetPos = (mobCF + farmPos).Position
-        return CFrame.new(targetPos, targetPos + lookFlat)
+    if weapon == "Blox Fruit" then
+        local y = tonumber(getgenv().YPosFruit) or 20
+        return mobCF * CFrame.new(-7, y, 0)
     end
+
+    return mobCF * CFrame.new(7, 20, 0)
+end
+
+-- Bring/Farm cycle:
+--   * Bring mobs nearest to the current farm mob.
+--   * The slider value is both the total bring group size and the number
+--     of unique mob deaths required before searching for a new farm mob.
+--   * After the required kills, the old look position becomes blocked for
+--     50 studs. GetNearestEnemy will refuse targets inside that old area,
+--     forcing the farm loop into its normal spawn-search/tween path.
+getgenv()._BringCycleKilled = getgenv()._BringCycleKilled or 0
+getgenv()._BringCycleSeen = getgenv()._BringCycleSeen or setmetatable({}, {__mode = "k"})
+getgenv()._BringCycleBlockedPos = getgenv()._BringCycleBlockedPos or nil
+getgenv()._BringCycleMobName = getgenv()._BringCycleMobName or nil
+getgenv()._BringCycleConnections = getgenv()._BringCycleConnections or setmetatable({}, {__mode = "k"})
+
+local BRING_NEW_FARM_BLOCK_RADIUS = 50
+
+local function GetBringCycleLimit()
+    return math.clamp(math.floor(tonumber(getgenv().BringMobCount) or 2), 2, 6)
+end
+
+local function ResetBringCycle()
+    getgenv()._BringCycleKilled = 0
+    getgenv()._BringCycleSeen = setmetatable({}, {__mode = "k"})
+    getgenv()._BringCycleMobName = nil
+    getgenv()._BringCycleBlockedPos = nil
+
+    local conns = getgenv()._BringCycleConnections
+    if conns then
+        for mob, conn in pairs(conns) do
+            pcall(function()
+                if conn then conn:Disconnect() end
+            end)
+            conns[mob] = nil
+        end
+    end
+end
+
+local function IsBringCycleBlockedMob(mob)
+    local blocked = getgenv()._BringCycleBlockedPos
+    if not blocked or not mob or not mob:FindFirstChild("HumanoidRootPart") then
+        return false
+    end
+    return (mob.HumanoidRootPart.Position - blocked).Magnitude <= BRING_NEW_FARM_BLOCK_RADIUS
+end
+
+local function FinishBringCycleAt(pos)
+    getgenv()._BringCycleKilled = GetBringCycleLimit()
+    getgenv()._BringCycleBlockedPos = pos
+    getgenv().CurrentTargetMob = nil
+    getgenv().CurrentFarmTarget = nil
+    getgenv()._BringLookPos = nil
+end
+
+local function TrackBringCycleMob(mob, mobName)
+    if not mob or not mob.Parent then return end
+    if getgenv()._BringCycleMobName ~= mobName then
+        ResetBringCycle()
+        getgenv()._BringCycleMobName = mobName
+    end
+
+    if getgenv()._BringCycleSeen[mob] then return end
+    getgenv()._BringCycleSeen[mob] = true
+
+    local hum = mob:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    local conn
+    conn = hum.Died:Connect(function()
+        if getgenv()._BringCycleSeen[mob] then
+            getgenv()._BringCycleSeen[mob] = nil
+            getgenv()._BringCycleKilled = (getgenv()._BringCycleKilled or 0) + 1
+
+            local limit = GetBringCycleLimit()
+            if getgenv()._BringCycleKilled >= limit then
+                local root = GetMobRoot(mob)
+                local pos = root and root.Position or getgenv()._BringLookPos
+                if pos then
+                    FinishBringCycleAt(pos)
+                end
+            end
+        end
+
+        local c = getgenv()._BringCycleConnections[mob]
+        if c then
+            pcall(function() c:Disconnect() end)
+            getgenv()._BringCycleConnections[mob] = nil
+        end
+    end)
+
+    getgenv()._BringCycleConnections[mob] = conn
 end
 
 local function GetNearestEnemy(enemyNames)
@@ -2853,10 +2858,17 @@ local function GetNearestEnemy(enemyNames)
                 isTarget = true
             end
             if isTarget then
-                local mag = (mob.HumanoidRootPart.Position - root.Position).Magnitude
-                if mag < dist then
-                    dist = mag
-                    nearest = mob
+                -- Once the selected number of mobs has been killed, do not
+                -- select another farm mob inside 50 studs of the old look
+                -- position. This makes the existing farm code enter its
+                -- normal spawn-search/tween path instead of re-farming the
+                -- same cluster.
+                if not IsBringCycleBlockedMob(mob) then
+                    local mag = (mob.HumanoidRootPart.Position - root.Position).Magnitude
+                    if mag < dist then
+                        dist = mag
+                        nearest = mob
+                    end
                 end
             end
         end
@@ -2900,6 +2912,13 @@ end
 --------------------------------------------------------------------
 getgenv().BringMobCount = getgenv().BringMobCount or 2
 
+-- Look Pos: điểm neo bring, lấy từ vị trí mob farm (CurrentTargetMob).
+-- Chỉ cập nhật lại khi mob farm hiện tại đi ra ngoài phạm vi
+-- BRING_LOOKPOS_TOLERANCE stud tính từ look pos cũ, tránh việc farm
+-- liên tục đổi mob gần nhất làm look pos (và do đó cả mob + player) nhảy lung tung.
+local BRING_LOOKPOS_TOLERANCE = 10
+getgenv()._BringLookPos = getgenv()._BringLookPos or nil
+
 local function GetMobRoot(v)
     local root = v:FindFirstChild("HumanoidRootPart")
     if root then return root end
@@ -2917,6 +2936,8 @@ function BringEnemy()
 
     if not getgenv().BringMob then
         getgenv().CurrentFarmTarget = nil
+        getgenv()._BringLookPos = nil
+        ResetBringCycle()
         return
     end
 
@@ -2952,6 +2973,122 @@ function BringEnemy()
         return
     end
 
+    -- New mob type = new kill cycle.
+    if getgenv()._BringCycleMobName ~= MobName then
+        ResetBringCycle()
+        getgenv()._BringCycleMobName = MobName
+    end
+
+    -- If a previous cycle completed, wait for a farm target outside the old
+    -- 50-stud area. The normal farm logic will tween to spawn points while
+    -- GetNearestEnemy returns nil inside the blocked area.
+    if getgenv()._BringCycleBlockedPos and farmTarget and farmTarget.Parent then
+        local fRoot = GetMobRoot(farmTarget)
+        if fRoot and not IsBringCycleBlockedMob(farmTarget) then
+            getgenv()._BringCycleBlockedPos = nil
+            getgenv()._BringCycleKilled = 0
+            getgenv()._BringCycleSeen = setmetatable({}, {__mode = "k"})
+        end
+    end
+
+    ----------------------------------------------------------------
+    -- CYBORG V4 BRING:
+    -- Cyborg + RaceTransformed=true -> gom về tâm trung bình spawn.
+    -- Chưa bật V4 -> giữ nguyên Bring Look Pos cũ.
+    ----------------------------------------------------------------
+    local function IsCyborgV4Active_Local()
+        -- Detect Cyborg V4 robustly. RaceTransformed can be recreated when
+        -- character/transform changes, so never cache the Instance itself.
+        local data = player:FindFirstChild("Data")
+        local race = data and data:FindFirstChild("Race")
+        if not race or tostring(race.Value) ~= "Cyborg" then
+            return false
+        end
+
+        local char = player.Character
+        if not char then return false end
+
+        local transformed = char:FindFirstChild("RaceTransformed")
+        if transformed then
+            local ok, value = pcall(function() return transformed.Value end)
+            if ok and value == true then
+                return true
+            end
+        end
+
+        -- Some versions expose the V4 state as an attribute instead of a
+        -- BoolValue. Support both without changing the normal non-V4 path.
+        local attrs = {
+            char:GetAttribute("RaceTransformed"),
+            char:GetAttribute("V4Active"),
+            char:GetAttribute("RaceV4"),
+        }
+        for _, value in ipairs(attrs) do
+            if value == true then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local function CleanMobSpawnName(name)
+        name = tostring(name or "")
+        name = name:match("^(.-)%s*%[") or name
+        name = name:gsub("%s+$", "")
+        return name
+    end
+
+    local function GetCyborgBringCenter(mobName)
+        local clean = CleanMobSpawnName(mobName)
+        local sum = Vector3.zero
+        local count = 0
+
+        -- WorldSpawnData uses the cleaned mob name. Also try the exact name
+        -- in case another farm mode supplied a variant.
+        local candidates = {clean, tostring(mobName)}
+        local seen = {}
+        for _, key in ipairs(candidates) do
+            if not seen[key] then
+                seen[key] = true
+                local saved = getgenv().WorldSpawnData[key]
+                if saved then
+                    for _, cf in ipairs(saved) do
+                        if typeof(cf) == "CFrame" then
+                            -- ScanWorldSpawns stores spawn CFrame at Y +25.
+                            sum = sum + (cf.Position - Vector3.new(0, 25, 0))
+                            count = count + 1
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Fallback: scan live EnemySpawns every time if the database has not
+        -- been populated yet or the mob name differs slightly.
+        if count == 0 then
+            local origin = workspace:FindFirstChild("_WorldOrigin")
+            local spawns = origin and origin:FindFirstChild("EnemySpawns")
+            if spawns then
+                for _, part in ipairs(spawns:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        local n = CleanMobSpawnName(part.Name)
+                        if n == clean or n == tostring(mobName) then
+                            sum = sum + part.Position
+                            count = count + 1
+                        end
+                    end
+                end
+            end
+        end
+
+        if count == 0 then return nil end
+        return CFrame.new(sum / count)
+    end
+
+    local useCyborgBring = IsCyborgV4Active_Local()
+    local cyborgCenter = useCyborgBring and GetCyborgBringCenter(MobName) or nil
+
     ----------------------------------------------------------------
     -- THU THẬP TOÀN BỘ MOB CÙNG TÊN ĐANG SỐNG.
     -- Không dùng CurrentFarmTarget làm "nguồn sự thật".
@@ -2966,6 +3103,8 @@ function BringEnemy()
             local hrp = GetMobRoot(mob)
 
             if hum and hrp and hum.Health > 0 and hrp:IsDescendantOf(workspace) then
+                TrackBringCycleMob(mob, MobName)
+
                 table.insert(validMobs, {
                     model = mob,
                     root = hrp,
@@ -2985,11 +3124,46 @@ function BringEnemy()
     end
 
     ----------------------------------------------------------------
-    -- VỊ TRÍ BRING = VỊ TRÍ TRUNG BÌNH CỦA TẤT CẢ MOB CÙNG TÊN.
-    -- Đây là điểm gom chung nên không còn phụ thuộc mob nào được
-    -- GetNearestEnemy() chọn trước.
+    -- VỊ TRÍ BRING = LOOK POS LẤY TỪ MOB FARM (CurrentTargetMob).
+    -- Sơ đồ: mob farm -> tạo look pos chỗ mob farm -> bring mob + mob farm
+    -- về look pos.
+    --
+    -- Không lấy lại look pos ở MỌI lần gọi, vì logic farm luôn ưu tiên mob
+    -- gần nhất -> mob farm đổi liên tục -> look pos nhảy lung tung -> cả
+    -- mob lẫn player bị bay tán loạn. Thay vào đó: chỉ tạo look pos mới khi
+    -- mob farm hiện tại nằm NGOÀI phạm vi BRING_LOOKPOS_TOLERANCE stud tính
+    -- từ look pos cũ; còn nếu vẫn trong phạm vi đó dù mob farm đã đổi
+    -- (do farm chọn mob gần nhất khác) thì look pos giữ nguyên.
     ----------------------------------------------------------------
-    local BringPosition = sum / count
+    local farmMobPos = nil
+    if farmTarget and farmTarget.Parent then
+        local fHum = farmTarget:FindFirstChildOfClass("Humanoid")
+        local fRoot = GetMobRoot(farmTarget)
+        if fHum and fRoot and fHum.Health > 0 then
+            farmMobPos = fRoot.Position
+        end
+    end
+
+    -- Không có mob farm hợp lệ (vd: farm mode không set CurrentTargetMob) ->
+    -- fallback về tâm nhóm mob cùng tên để không bị nil.
+    if not farmMobPos then
+        farmMobPos = sum / count
+    end
+
+    local lookPos = getgenv()._BringLookPos
+    if not lookPos or (farmMobPos - lookPos).Magnitude > BRING_LOOKPOS_TOLERANCE then
+        lookPos = farmMobPos
+        getgenv()._BringLookPos = lookPos
+    end
+
+    -- V4 must never silently fall back to the old player look position.
+    -- If spawn data is temporarily unavailable, use the average position of
+    -- the currently loaded same-name mobs as a safe Cyborg center.
+    if useCyborgBring and not cyborgCenter and count > 0 then
+        cyborgCenter = CFrame.new(sum / count)
+    end
+
+    local BringPosition = (useCyborgBring and cyborgCenter and cyborgCenter.Position) or lookPos
 
     -- Giữ lại target gần player nhất để các logic khác nếu cần có thể
     -- đọc CurrentFarmTarget, nhưng BringEnemy không còn phụ thuộc nó.
@@ -3018,77 +3192,102 @@ function BringEnemy()
     ----------------------------------------------------------------
     -- BRING COUNT:
     -- Slider 2-6 vẫn được giữ nguyên.
-    -- Mob gần điểm trung bình nhất sẽ được ưu tiên.
+    -- Mob gần look pos nhất sẽ được ưu tiên.
     ----------------------------------------------------------------
-    local maxBring = math.clamp(
-        math.floor(tonumber(getgenv().BringMobCount) or 2) - 1,
-        1,
-        5
-    )
+    -- Slider là TỔNG số mob tại điểm farm, bao gồm mob farm.
+    -- 2 = 1 mob farm + 1 mob bring
+    -- 3 = 1 mob farm + 2 mob bring
+    -- ...
+    -- 6 = 1 mob farm + 5 mob bring
+    local totalBring = math.clamp(math.floor(tonumber(getgenv().BringMobCount) or 2), 2, 6)
+    local extraBring = totalBring - 1
+
+    local function IsNetworkOwner(part)
+        if not part then return false end
+        if typeof(isnetworkowner) == "function" then
+            local ok, result = pcall(isnetworkowner, part)
+            if ok then return result == true end
+        end
+        -- Không có API network owner thì vẫn thử client-side, nhưng không
+        -- ép Humanoid/velocity để tránh tạo mob ảo/desync.
+        return true
+    end
+
+    local function MoveMobToBringPosition(info, isFarmMob)
+        if not info then return false end
+        local mob, hrp, hum = info.model, info.root, info.humanoid
+        if not mob or not mob.Parent or not hrp or not hrp.Parent or not hum or hum.Health <= 0 then
+            return false
+        end
+        if not hrp:IsDescendantOf(workspace) then return false end
+
+        -- Chỉ CFrame khi client thực sự có network ownership.
+        -- Đây là phần quan trọng để tránh mob ảo: server không bị client
+        -- kéo một NPC mà client không sở hữu rồi sau đó rollback vị trí.
+        if not IsNetworkOwner(hrp) then return false end
+
+        local targetCF = CFrame.new(BringPosition) * CFrame.new(
+            math.random(-1, 1),
+            math.random(0, 1),
+            math.random(-1, 1)
+        )
+
+        local ok = pcall(function()
+            hrp.CFrame = targetCF
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CanCollide = false
+        end)
+        if not ok then return false end
+
+        -- Không khóa Humanoid bằng WalkSpeed/JumpPower/AutoRotate nữa.
+        -- Việc khóa Humanoid có thể làm NPC bị server reset/despawn/ảo.
+        return true
+    end
+
+    -- Luôn bring MOB FARM trước. Nó không được tính vào extraBring.
+    local farmInfo = nil
+    if farmTarget and farmTarget.Parent then
+        local fHum = farmTarget:FindFirstChildOfClass("Humanoid")
+        local fRoot = GetMobRoot(farmTarget)
+        if fHum and fRoot and fHum.Health > 0 then
+            farmInfo = {model = farmTarget, root = fRoot, humanoid = fHum, position = fRoot.Position}
+        end
+    end
+    if not farmInfo and nearestTarget then
+        for _, info in ipairs(validMobs) do
+            if info.model == nearestTarget then
+                farmInfo = info
+                break
+            end
+        end
+    end
+
+    MoveMobToBringPosition(farmInfo, true)
+
+    -- Chọn thêm đúng số mob theo slider, KHÔNG chọn lại farm mob.
+    -- Quan trọng: mob phụ được ưu tiên theo khoảng cách tới MOB FARM,
+    -- không theo player/look position.
+    local farmReferencePos = farmInfo and farmInfo.root and farmInfo.root.Position
+        or BringPosition
 
     table.sort(validMobs, function(a, b)
-        return (a.position - BringPosition).Magnitude
-            < (b.position - BringPosition).Magnitude
+        return (a.position - farmReferencePos).Magnitude
+            < (b.position - farmReferencePos).Magnitude
     end)
 
-    local brought = 0
-
+    local broughtExtra = 0
     for _, info in ipairs(validMobs) do
-        if brought >= maxBring then
-            break
-        end
-
-        local mob = info.model
-        local hrp = info.root
-        local hum = info.humanoid
-
-        if mob ~= nearestTarget
-            and mob.Parent
-            and hrp.Parent
-            and hum.Health > 0 then
-
-            -- CFrame + vận tốc = giữ mob ổn định hơn khi server/client
-            -- cập nhật Physics giữa các Heartbeat.
-            pcall(function()
-                hrp.CFrame = CFrame.new(BringPosition)
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-                hrp.CanCollide = false
-            end)
-
-            pcall(function()
-                hum.WalkSpeed = 0
-                hum.JumpPower = 0
-                hum.AutoRotate = false
-            end)
-
-            brought = brought + 1
+        if broughtExtra >= extraBring then break end
+        if not farmInfo or info.model ~= farmInfo.model then
+            if MoveMobToBringPosition(info, false) then
+                broughtExtra = broughtExtra + 1
+            end
         end
     end
 
-    ----------------------------------------------------------------
-    -- ÉP LẠI target chính về tâm trung bình nếu nó bị lệch quá xa.
-    -- Làm nhẹ nhàng, không phá target của farm.
-    ----------------------------------------------------------------
-    if nearestTarget and nearestTarget.Parent then
-        local targetRoot = GetMobRoot(nearestTarget)
-        local targetHum = nearestTarget:FindFirstChildOfClass("Humanoid")
-
-        if targetRoot and targetHum and targetHum.Health > 0 then
-            pcall(function()
-                targetRoot.CFrame = CFrame.new(BringPosition)
-                targetRoot.AssemblyLinearVelocity = Vector3.zero
-                targetRoot.AssemblyAngularVelocity = Vector3.zero
-                targetRoot.CanCollide = false
-            end)
-
-            pcall(function()
-                targetHum.WalkSpeed = 0
-                targetHum.JumpPower = 0
-                targetHum.AutoRotate = false
-            end)
-        end
-    end
+    -- CurrentFarmTarget luôn là mob farm thật, không phải mob phụ.
+    getgenv().CurrentFarmTarget = farmInfo and farmInfo.model or nearestTarget
 end
 
 -- Heartbeat ổn định hơn task.wait() thuần vì Bring cần chạy đồng bộ
@@ -3104,6 +3303,7 @@ local function StartGlobalBringMob()
     _bringHeartbeatConn = RunService.Heartbeat:Connect(function()
         if not getgenv().BringMob then
             getgenv().CurrentFarmTarget = nil
+            getgenv()._BringLookPos = nil
             return
         end
 
@@ -3125,6 +3325,11 @@ local function StartGlobalBringMob()
             pcall(BringEnemy)
         else
             getgenv().CurrentFarmTarget = nil
+            -- Do not clear _BringCycleBlockedPos here: the farm search must
+            -- continue avoiding the old 50-stud area until it finds a new mob.
+            if not getgenv()._BringCycleBlockedPos then
+                getgenv()._BringLookPos = nil
+            end
         end
     end)
 end
@@ -5252,12 +5457,12 @@ local function LoadConfig()
             local data = HttpService:JSONDecode(readfile(_SV_FILE))
 
             -- ── PASS 1: Load Dropdown / Slider / Colorpicker trước ──────────
-            -- Các biến global (SelectedFarm, FlySpeed, FarmMode, ChooseWP...)
+            -- Các biến global (SelectedFarm, FlySpeed, ChooseWP...)
             -- phải được set TRƯỚC khi toggle farm bật và gọi logic farm.
             -- [FIX] SetValue() chỉ cập nhật visual, KHÔNG fire Callback, nên
             -- phải gọi thủ công _OptionCBs[id](value) giống hệt cách Toggle
             -- đã làm ở Pass 2 bên dưới — nếu không thì Dropdown/Slider hiển
-            -- thị đúng giá trị đã lưu nhưng logic bên trong (getgenv().FarmMode,
+            -- hiển thị đúng giá trị đã lưu nhưng logic bên trong,
             -- SelectedFarm, FlySpeed, ChooseWP...) vẫn ở giá trị mặc định.
             for id, value in pairs(data) do
                 local opt = Library.Options[id]
@@ -7926,3 +8131,195 @@ end
 SetupTravelAndShop()
 
 AutoLoad()
+
+--------------------------------------------------------------------
+-- ATTACK MODULE INIT (chạy CUỐI script, sau khi toàn bộ UI + AutoLoad
+-- đã xong). Đặt ở đây vì require() các module thật của game
+-- (CombatUtil / Net / Mouse) ngay giữa lúc đang dựng UI từng gây lỗi
+-- "cannot access 'Instance' (lacking capability Plugin)" cho các
+-- toggle được tạo NGAY SAU nó — dời xuống cuối để không còn UI nào
+-- tạo sau thời điểm require() này nữa.
+--------------------------------------------------------------------
+do
+    local _attackInitOk, _attackInitErr = pcall(function()
+            local AM_ReplicatedStorage = ReplicatedStorage
+            local AM_Workspace         = Workspace
+            local AM_Players           = Players
+            local AM_LocalPlayer       = player
+            local AM_Character         = AM_LocalPlayer.Character or AM_LocalPlayer.CharacterAdded:Wait()
+
+            AM_LocalPlayer.CharacterAdded:Connect(function(c)
+                AM_Character = c
+            end)
+
+            local MouseModule = require(AM_ReplicatedStorage:WaitForChild("Mouse"))
+            local CombatUtil   = require(AM_ReplicatedStorage.Modules.CombatUtil)
+            local NetModule    = require(AM_ReplicatedStorage.Modules.Net)
+
+            local RegisterAttack = AM_ReplicatedStorage.Modules.Net:WaitForChild("RE/RegisterAttack")
+            local RegisterHit    = NetModule.RemoteEvent(NetModule, "RegisterHit", true)
+
+            -- Attack luôn dùng moveset/animation bình thường.
+
+            local comboIndex = 0
+
+            ---------------------------------------------------------------------------
+            -- getBladeHits: quét vật thể trong bán kính quanh origin.
+            -- includePlayers = true -> quét thêm Workspace.Characters (player khác).
+            ---------------------------------------------------------------------------
+            local function getBladeHits(originParts, radius, includePlayers)
+                local hits = {}
+                local origin = originParts[1] and originParts[1].Position
+                if not origin then return hits end
+
+                local function scanFolder(folder, skipSelf)
+                    if not folder then return end
+                    for _, model in ipairs(folder:GetChildren()) do
+                        if model:FindFirstChild("HumanoidRootPart") and not (skipSelf and model == AM_Character) then
+                            local hrp = model.HumanoidRootPart
+                            local playerFromChar = AM_Players:GetPlayerFromCharacter(model)
+                            local r = playerFromChar and (radius / 1.5) or radius
+                            local checkPoints = { hrp.Position }
+                            if hrp.Size.Y > 5 then
+                                table.insert(checkPoints, (hrp.CFrame * CFrame.new(0, (-hrp.Size.Y * 1.5) + 3, 0)).Position)
+                            end
+                            for _, pos in ipairs(checkPoints) do
+                                if (pos - origin).Magnitude < (10 + r + hrp.Size.X / 2) then
+                                    for _, part in ipairs(model:GetDescendants()) do
+                                        if part:IsA("BasePart") then
+                                            table.insert(hits, part)
+                                        end
+                                    end
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+
+                local enemies = AM_Workspace:FindFirstChild("Enemies")
+                if enemies then
+                    scanFolder(enemies, false)
+                end
+
+                if includePlayers then
+                    local charactersFolder = AM_Workspace:FindFirstChild("Characters")
+                    if charactersFolder then
+                        scanFolder(charactersFolder, true)
+                    end
+                end
+
+                return hits
+            end
+
+            getgenv().getBladeHits = getBladeHits
+
+            ---------------------------------------------------------------------------
+            -- AttackAOE -> { {rig, hitPart}, ... } hoặc nil
+            ---------------------------------------------------------------------------
+            AttackAOE = function(radius, includeSelf, includePlayers)
+                local char = AM_Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then
+                    return nil
+                end
+
+                local origin = { char.HumanoidRootPart }
+                local parts  = getBladeHits(origin, radius or 30, includePlayers)
+                local results = {}
+                local seen = {}
+
+                for _, part in ipairs(parts) do
+                    local rig = CombatUtil:GetRigOfHitPart(part)
+                    if rig and CombatUtil:IsVulnerable(rig) and not seen[rig] then
+                        if includeSelf or rig ~= char then
+                            table.insert(results, { rig, part })
+                            seen[rig] = true
+                        end
+                    end
+                end
+
+                if #results > 0 then
+                    return results
+                end
+                return nil
+            end
+
+            getgenv().AttackAOE = AttackAOE
+
+            ---------------------------------------------------------------------------
+            -- attackMelee: attack bằng moveset/animation bình thường.
+            -- Trả cả RegisterAttack + RegisterHit để hit thật sự được gửi lên server.
+            ---------------------------------------------------------------------------
+            local function attackMelee(radius, includePlayers)
+                local char = AM_Character
+                local tool = char and char:FindFirstChildOfClass("Tool")
+                if not tool then return end
+
+                local hits = AttackAOE(radius or 30, false, includePlayers)
+                if not hits or #hits == 0 then return end
+
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if not hum or not hum.RootPart then return end
+
+                local animCache = CombatUtil:GetMovesetAnimCache(hum)
+                if not animCache then return end
+
+                local weaponName = CombatUtil:GetWeaponName(tool)
+                local weaponData = CombatUtil:GetWeaponData(weaponName)
+                if not weaponData then return end
+
+                local weaponType = weaponData.WeaponType
+                local moveset = weaponData.Moveset
+                if not moveset or not moveset.Basic or #moveset.Basic == 0 then return end
+                if not CombatUtil:CanAttack(hum.RootPart.Parent, weaponType) then return end
+
+                comboIndex = comboIndex + 1
+                if comboIndex > #moveset.Basic then
+                    comboIndex = 1
+                end
+
+                local pureName = CombatUtil:GetPureWeaponName(weaponName)
+                local animKey = pureName .. "-basic" .. comboIndex
+                local anim = animCache[animKey]
+                if not anim then return end
+
+                local length = anim.Length
+                local speed = anim:GetAttribute("SpeedMult") or 1
+                if speed <= 0 then speed = 1 end
+
+                -- Attack bình thường: có animation + gửi hit list.
+                RegisterAttack:FireServer(length / speed)
+
+                local primary = table.remove(hits, 1)
+                if primary and primary[2] then
+                    RegisterHit:FireServer(primary[2], hits)
+                end
+
+                table.clear(hits)
+            end
+
+            ---------------------------------------------------------------------------
+            -- AttackFunction:
+            --   includePlayers = false -> CHỈ MOB.
+            --   includePlayers = true  -> MOB + PLAYER.
+            -- Mọi attack đều đi qua moveset animation.
+            ---------------------------------------------------------------------------
+            AttackFunction = function(radius, includePlayers)
+                radius = radius or 30
+
+                local char = AM_Character
+                local stun = char and char:FindFirstChild("Stun")
+                if stun and stun.Value ~= 0 then
+                    return
+                end
+
+                attackMelee(radius, includePlayers == true)
+            end
+
+            getgenv().AttackFunction = AttackFunction
+    end)
+
+    if not _attackInitOk then
+        warn("[Topi_Hub] Attack Module init lỗi, AttackFunction sẽ không hoạt động: " .. tostring(_attackInitErr))
+    end
+end
