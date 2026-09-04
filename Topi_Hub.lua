@@ -1264,7 +1264,7 @@ local function doIntermediateTeleport(targetCF, speed)
                         local dist = (h.Position - portalPos).Magnitude
                         local tween = TweenService:Create(
                             h,
-                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 300), 0.05), Enum.EasingStyle.Linear),
+                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 190), 0.05), Enum.EasingStyle.Linear),
                             {CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 0))}
                         )
                         tween:Play()
@@ -1289,7 +1289,7 @@ local function doIntermediateTeleport(targetCF, speed)
                         local dist = (h.Position - (tikiPos + Vector3.new(0, 2, 0))).Magnitude
                         local tween = TweenService:Create(
                             h,
-                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 300), 0.05), Enum.EasingStyle.Linear),
+                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 190), 0.05), Enum.EasingStyle.Linear),
                             {CFrame = CFrame.new(tikiPos + Vector3.new(0, 2, 0))}
                         )
                         tween:Play()
@@ -1318,7 +1318,7 @@ local function doIntermediateTeleport(targetCF, speed)
                     local distNow = (h.Position - target.Position).Magnitude
                     local tween = TweenService:Create(
                         h,
-                        TweenInfo.new(math.max(distNow / (speed or getgenv().FlySpeed or 300), 0.05), Enum.EasingStyle.Linear),
+                        TweenInfo.new(math.max(distNow / (speed or getgenv().FlySpeed or 190), 0.05), Enum.EasingStyle.Linear),
                         {CFrame = target}
                     )
                     tween:Play()
@@ -2077,10 +2077,10 @@ _G.SelectWeapon = nil
 
 Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
-    Description = "Tốc độ bay / tween (0 - 300)",
-    Default = 280,
-    Min = 0,
-    Max = 300,
+    Description = "Tốc độ bay / tween (50 - 190)",
+    Default = 190,
+    Min = 50,
+    Max = 190,
     Rounding = 1,
     Callback = function(v)
         getgenv().FlySpeed = v
@@ -2119,7 +2119,7 @@ Tabs.Settings:CreateToggle("AutoClick", {
 -- ATTACK LOOP: điều phối khi nào gọi AttackFunction
 --------------------------------------------------------------------
 local ATTACK_FARM_TRIGGER_RANGE = 100
-local ATTACK_HIT_RADIUS = 30
+local ATTACK_HIT_RADIUS = 100
 local _attackHBConn = nil
 
 local function IsAnyFarmModeActive()
@@ -4297,7 +4297,7 @@ local function TeleportToSubmerged(finalPos)
         -- Bước 5 (tuỳ chọn): Fly đến vị trí farm bên trong island
         if finalPos then
             local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
-            TweenToPos(farmCF, getgenv().FlySpeed or 300)
+            TweenToPos(farmCF, getgenv().FlySpeed or 190)
 
             -- Bắt buộc tween tới finalPos, không timeout
             while myId == _submergedCallId and getgenv().IsFarming do
@@ -4306,7 +4306,7 @@ local function TeleportToSubmerged(finalPos)
                 if root and (root.Position - finalPos).Magnitude <= 100 then
                     break
                 end
-                TweenToPos(farmCF, getgenv().FlySpeed or 300)
+                TweenToPos(farmCF, getgenv().FlySpeed or 190)
             end
         end
     end)
@@ -7150,7 +7150,7 @@ local function startRaidFarmLoop(isActiveFn, isMultiRaid)
                     )
                 end
 
-                TweenObject(root, multiRaidSafeCF, getgenv().FlySpeed or 300)
+                TweenObject(root, multiRaidSafeCF, getgenv().FlySpeed or 190)
                 getgenv().CurrentTargetMob = nil
                 return
             else
@@ -7171,7 +7171,7 @@ local function startRaidFarmLoop(isActiveFn, isMultiRaid)
                 TweenObject(
                     root,
                     island5.CFrame * CFrame.new(0, 500, 0),
-                    getgenv().FlySpeed or 300
+                    getgenv().FlySpeed or 190
                 )
                 return
             end
@@ -7430,12 +7430,12 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                         if hostHRP and not hostAtWait then
                             -- Host chưa tới chỗ chờ → tween bám theo host
                             local followCF = CFrame.new(hostHRP.Position + Vector3.new(0, 3, 0))
-                            TweenToPos(followCF, getgenv().FlySpeed or 300)
+                            TweenToPos(followCF, getgenv().FlySpeed or 190)
                         else
                             -- Host đã ở vị trí chờ (hoặc không tìm thấy host) → đứng pos trống
                             local emptyPos = FindEmptyWaitPos()
                             if (root.Position - emptyPos).Magnitude > RAID_WAIT_RADIUS then
-                                TweenToPos(CFrame.new(emptyPos + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
+                                TweenToPos(CFrame.new(emptyPos + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 190)
                             end
                         end
                         task.wait(0.35)
@@ -7446,12 +7446,12 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                     do
                         local root = getRoot()
                         if root and (root.Position - RAID_BUY_POS).Magnitude > 15 then
-                            TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
+                            TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 190)
                             repeat
                                 task.wait(0.15)
                                 root = getRoot()
                                 if root and (root.Position - RAID_BUY_POS).Magnitude > 20 then
-                                    TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
+                                    TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 190)
                                 end
                             until not getgenv().AutoRaid
                                 or not root
@@ -7467,7 +7467,7 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                             if AreSelectedMultiPlayersReady() then break end
                             local root = getRoot()
                             if root and (root.Position - RAID_BUY_POS).Magnitude > 25 then
-                                TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 300)
+                                TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 190)
                             end
                             task.wait(0.4)
                         end
@@ -7687,13 +7687,13 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                     if alreadyNear then
                         -- Đã ở trong Submerged Island → fly thẳng đến vị trí farm
                         local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
-                        TweenToPos(farmCF, getgenv().FlySpeed or 300)
+                        TweenToPos(farmCF, getgenv().FlySpeed or 190)
 
                         while getgenv().TravelToIsland do
                             task.wait(0.15)
                             local r = getRoot()
                             if r and (r.Position - finalPos).Magnitude <= 100 then break end
-                            TweenToPos(farmCF, getgenv().FlySpeed or 300)
+                            TweenToPos(farmCF, getgenv().FlySpeed or 190)
                         end
                     else
                         -- Chưa ở gần: đi qua NPC ngoài mặt nước, kích hoạt
@@ -7715,7 +7715,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
 
                 local targetCF = CFrame.new(data.pos + Vector3.new(0, 5, 0))
                 -- TweenToPos tự xử lý tele trung gian nếu TelePorto bật
-                TweenToPos(targetCF, getgenv().FlySpeed or 300)
+                TweenToPos(targetCF, getgenv().FlySpeed or 190)
 
                 -- Bắt buộc tween tới đích, không timeout
                 while getgenv().TravelToIsland do
@@ -7724,7 +7724,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                     if root and (root.Position - data.pos).Magnitude <= 100 then
                         break
                     end
-                    TweenToPos(targetCF, getgenv().FlySpeed or 300)
+                    TweenToPos(targetCF, getgenv().FlySpeed or 190)
                 end
 
                 -- Tắt toggle sau khi đến nơi
@@ -7789,7 +7789,7 @@ spawn(function()
                 for _, v in pairs(ReplicatedStorage.NPCs:GetChildren()) do
                     if v.Name == selectedNPC and v:FindFirstChild("HumanoidRootPart") then
                         -- TweenToPos tự xử lý tele trung gian nếu TelePorto bật
-                        TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 300)
+                        TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 190)
                         break
                     end
                 end
@@ -7934,7 +7934,7 @@ local function BuyFightingStyle(styleName, styleData, enabled)
             startFly()
 
             local targetCF = CFrame.new(targetPos + Vector3.new(0, 3, 0))
-            TweenToPos(targetCF, getgenv().FlySpeed or 300)
+            TweenToPos(targetCF, getgenv().FlySpeed or 190)
 
             -- Bắt buộc tween tới NPC, không timeout
             repeat
@@ -7946,7 +7946,7 @@ local function BuyFightingStyle(styleName, styleData, enabled)
                 elseif (r.Position - targetPos).Magnitude <= BUY_PROXIMITY then
                     break
                 else
-                    TweenToPos(targetCF, getgenv().FlySpeed or 300)
+                    TweenToPos(targetCF, getgenv().FlySpeed or 190)
                 end
             until not _buyStyleActive[styleName]
 
@@ -8299,7 +8299,7 @@ do
                 end
 
                 local origin = { char.HumanoidRootPart }
-                local parts  = getBladeHits(origin, radius or 30, includePlayers)
+                local parts  = getBladeHits(origin, radius or 100, includePlayers)
                 local results = {}
                 local seen = {}
 
@@ -8330,7 +8330,7 @@ do
                 local tool = char and char:FindFirstChildOfClass("Tool")
                 if not tool then return end
 
-                local hits = AttackAOE(radius or 30, false, includePlayers)
+                local hits = AttackAOE(radius or 100, false, includePlayers)
                 if not hits or #hits == 0 then return end
 
                 local hum = char:FindFirstChildOfClass("Humanoid")
@@ -8380,7 +8380,7 @@ do
             -- Mọi attack đều đi qua moveset animation.
             ---------------------------------------------------------------------------
             AttackFunction = function(radius, includePlayers)
-                radius = radius or 30
+                radius = radius or 100
 
                 local char = AM_Character
                 local stun = char and char:FindFirstChild("Stun")
