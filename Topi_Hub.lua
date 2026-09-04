@@ -3,7 +3,7 @@ local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOog
 local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Library:CreateWindow({
-    Title = "Topi Hub [ Beta V0.015 ]",
+    Title = "Topi Hub [ Beta V0.83 ]",
     SubTitle = "by wzarii & AI",
     TabWidth = 160,
     Theme = "Dark",
