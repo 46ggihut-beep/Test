@@ -2733,22 +2733,24 @@ local function TweenObject(_, cf, speed) _tp(cf, speed) end
 
 --------------------------------------------------------------------
 -- FARM STAND POSITION
--- Dùng mặc định từ FarmStandPosition: Weapon = (7,20,0),
--- Blox Fruit = (-7,YPosFruit,0). Không còn Farm Mode / Farm Distance.
+-- Logic mới: đứng thẳng trên đầu mob theo trục Y thế giới (world Y),
+-- KHÔNG dùng CFrame local offset của mob nữa (bỏ mobCF * CFrame.new(...)
+-- vì bị lệch theo hướng xoay của mob). Lấy Y hiện tại của mob rồi cộng
+-- thêm khoảng cách offset để ra Y đứng của player, giữ nguyên X/Z của mob
+-- (đứng ngay phía trên đầu mob). Offset giữ nguyên: weapon thường = 30,
+-- weapon fruit (Blox Fruit) = 20.
 --------------------------------------------------------------------
 local function GetFarmCFrame(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return nil end
 
-    local mobCF = mob.HumanoidRootPart.CFrame
+    local mobPos = mob.HumanoidRootPart.Position
     local settings = getgenv().Settings or {}
     local weapon = settings["Select Weapon"] or "Melee"
 
-    if weapon == "Blox Fruit" then
-        local y = tonumber(getgenv().YPosFruit) or 20
-        return mobCF * CFrame.new(-7, y, 0)
-    end
+    local yOffset = (weapon == "Blox Fruit") and 20 or 30
+    local playerY = mobPos.Y + yOffset
 
-    return mobCF * CFrame.new(7, 20, 0)
+    return CFrame.new(Vector3.new(mobPos.X, playerY, mobPos.Z))
 end
 
 -- Bring/Farm cycle:
@@ -2933,10 +2935,12 @@ getgenv().BringMobCount = getgenv().BringMobCount or 2
 -- Chỉ cập nhật lại khi mob farm hiện tại đi ra ngoài phạm vi
 -- BRING_LOOKPOS_TOLERANCE stud tính từ look pos cũ, tránh việc farm
 -- liên tục đổi mob gần nhất làm look pos (và do đó cả mob + player) nhảy lung tung.
-local BRING_LOOKPOS_TOLERANCE = 5
+local BRING_LOOKPOS_TOLERANCE = 3
+-- Phạm vi (stud) quanh look pos (vị trí mob farm) mà bring được phép hoạt động.
+-- Chỉ mob cùng loại nằm trong bán kính này mới bị kéo về; mob ở xa hơn bị bỏ qua.
+local BRING_RANGE = 300
 local BRING_INTERVAL = 0.2
 getgenv()._NextBringAt = getgenv()._NextBringAt or 0
-getgenv()._V4BringLastMode = getgenv()._V4BringLastMode or false
 getgenv()._BringLookPos = getgenv()._BringLookPos or nil
 
 local function GetMobRoot(v)
@@ -2946,45 +2950,6 @@ local function GetMobRoot(v)
         return v.PrimaryPart
     end
     return nil
-end
-
-
-local function IsDropdownFarmModeActive()
-    -- V4 bring is intentionally restricted to the dropdown/default farm mode.
-    -- Other farm modes use normal bring.
-    return getgenv().IsFarming == true
-end
-
-local function IsCyborgV4Active()
-    local player = game:GetService("Players").LocalPlayer
-    local data = player and player:FindFirstChild("Data")
-    local race = data and data:FindFirstChild("Race")
-    if not race or race.Value ~= "Cyborg" then
-        return false
-    end
-
-    local raceTransformed = data:FindFirstChild("RaceTransformed")
-    if raceTransformed and raceTransformed:IsA("BoolValue") then
-        return raceTransformed.Value
-    end
-
-    local attrs = {
-        "RaceTransformed",
-        "V4Active",
-        "RaceV4",
-    }
-    for _, name in ipairs(attrs) do
-        local value = player:GetAttribute(name)
-        if value == true then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function IsV4BringAllowed()
-    return IsDropdownFarmModeActive() and IsCyborgV4Active()
 end
 
 local function BringModelToLookPos(mob, targetPos)
@@ -3067,104 +3032,6 @@ function BringEnemy()
     end
 
     ----------------------------------------------------------------
-    -- CYBORG V4 BRING:
-    -- Cyborg + RaceTransformed=true -> gom về tâm trung bình spawn.
-    -- Chưa bật V4 -> giữ nguyên Bring Look Pos cũ.
-    ----------------------------------------------------------------
-    local function IsCyborgV4Active_Local()
-        -- Detect Cyborg V4 robustly. RaceTransformed can be recreated when
-        -- character/transform changes, so never cache the Instance itself.
-        local data = player:FindFirstChild("Data")
-        local race = data and data:FindFirstChild("Race")
-        if not race or tostring(race.Value) ~= "Cyborg" then
-            return false
-        end
-
-        local char = player.Character
-        if not char then return false end
-
-        local transformed = char:FindFirstChild("RaceTransformed")
-        if transformed then
-            local ok, value = pcall(function() return transformed.Value end)
-            if ok and value == true then
-                return true
-            end
-        end
-
-        -- Some versions expose the V4 state as an attribute instead of a
-        -- BoolValue. Support both without changing the normal non-V4 path.
-        local attrs = {
-            char:GetAttribute("RaceTransformed"),
-            char:GetAttribute("V4Active"),
-            char:GetAttribute("RaceV4"),
-        }
-        for _, value in ipairs(attrs) do
-            if value == true then
-                return true
-            end
-        end
-
-        return false
-    end
-
-    local function CleanMobSpawnName(name)
-        name = tostring(name or "")
-        name = name:match("^(.-)%s*%[") or name
-        name = name:gsub("%s+$", "")
-        return name
-    end
-
-    local function GetCyborgBringCenter(mobName)
-        local clean = CleanMobSpawnName(mobName)
-        local sum = Vector3.zero
-        local count = 0
-
-        -- WorldSpawnData uses the cleaned mob name. Also try the exact name
-        -- in case another farm mode supplied a variant.
-        local candidates = {clean, tostring(mobName)}
-        local seen = {}
-        for _, key in ipairs(candidates) do
-            if not seen[key] then
-                seen[key] = true
-                local saved = getgenv().WorldSpawnData[key]
-                if saved then
-                    for _, cf in ipairs(saved) do
-                        if typeof(cf) == "CFrame" then
-                            -- ScanWorldSpawns stores spawn CFrame at Y +25.
-                            sum = sum + (cf.Position - Vector3.new(0, 25, 0))
-                            count = count + 1
-                        end
-                    end
-                end
-            end
-        end
-
-        -- Fallback: scan live EnemySpawns every time if the database has not
-        -- been populated yet or the mob name differs slightly.
-        if count == 0 then
-            local origin = workspace:FindFirstChild("_WorldOrigin")
-            local spawns = origin and origin:FindFirstChild("EnemySpawns")
-            if spawns then
-                for _, part in ipairs(spawns:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        local n = CleanMobSpawnName(part.Name)
-                        if n == clean or n == tostring(mobName) then
-                            sum = sum + part.Position
-                            count = count + 1
-                        end
-                    end
-                end
-            end
-        end
-
-        if count == 0 then return nil end
-        return CFrame.new(sum / count)
-    end
-
-    local useCyborgBring = IsCyborgV4Active_Local()
-    local cyborgCenter = useCyborgBring and GetCyborgBringCenter(MobName) or nil
-
-    ----------------------------------------------------------------
     -- THU THẬP TOÀN BỘ MOB CÙNG TÊN ĐANG SỐNG.
     -- Không dùng CurrentFarmTarget làm "nguồn sự thật".
     ----------------------------------------------------------------
@@ -3231,14 +3098,29 @@ function BringEnemy()
         getgenv()._BringLookPos = lookPos
     end
 
-    -- V4 must never silently fall back to the old player look position.
-    -- If spawn data is temporarily unavailable, use the average position of
-    -- the currently loaded same-name mobs as a safe Cyborg center.
-    if useCyborgBring and not cyborgCenter and count > 0 then
-        cyborgCenter = CFrame.new(sum / count)
+    -- Bring luôn hoạt động và luôn đưa mob về look pos (vị trí mob farm),
+    -- không còn logic riêng cho Cyborg V4.
+    local BringPosition = lookPos
+
+    ----------------------------------------------------------------
+    -- GIỚI HẠN BRING: chỉ bring mob CÙNG LOẠI nằm trong phạm vi
+    -- BRING_RANGE stud, tâm là look pos (vị trí mob farm). Mob cùng
+    -- tên nhưng ở ngoài phạm vi này sẽ bị loại, không kéo về.
+    ----------------------------------------------------------------
+    do
+        local inRange = {}
+        for _, info in ipairs(validMobs) do
+            if (info.position - lookPos).Magnitude <= BRING_RANGE then
+                table.insert(inRange, info)
+            end
+        end
+        validMobs = inRange
     end
 
-    local BringPosition = (useCyborgBring and cyborgCenter and cyborgCenter.Position) or lookPos
+    if #validMobs == 0 then
+        getgenv().CurrentFarmTarget = nil
+        return
+    end
 
     -- Giữ lại target gần player nhất để các logic khác nếu cần có thể
     -- đọc CurrentFarmTarget, nhưng BringEnemy không còn phụ thuộc nó.
