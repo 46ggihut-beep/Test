@@ -2698,11 +2698,8 @@ _tp = function(targetCF, speed)
 
     if dist < 1 then return end  -- Đã đến nơi, không cần làm gì
 
-    -- Cách đích ≤ 150 stud → tăng tốc lên 500 để vào tới nơi nhanh hơn
+    -- Xóa logic tăng tốc khi tới gần đích: luôn dùng đúng speed truyền vào.
     local effectiveSpeed = speed
-    if dist <= 100 then
-        effectiveSpeed = 500
-    end
 
     -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
     -- Cancel + tạo tween mới nếu: chưa có tween, đổi speed,
@@ -2733,24 +2730,33 @@ local function TweenObject(_, cf, speed) _tp(cf, speed) end
 
 --------------------------------------------------------------------
 -- FARM STAND POSITION
--- Logic mới: đứng thẳng trên đầu mob theo trục Y thế giới (world Y),
--- KHÔNG dùng CFrame local offset của mob nữa (bỏ mobCF * CFrame.new(...)
--- vì bị lệch theo hướng xoay của mob). Lấy Y hiện tại của mob rồi cộng
--- thêm khoảng cách offset để ra Y đứng của player, giữ nguyên X/Z của mob
--- (đứng ngay phía trên đầu mob). Offset giữ nguyên: weapon thường = 30,
--- weapon fruit (Blox Fruit) = 20.
+-- Đứng thẳng theo trục Y thế giới (world Y), KHÔNG dùng CFrame local
+-- offset của mob (bỏ mobCF * CFrame.new(...) vì bị lệch theo hướng xoay
+-- của mob). X/Z + Y gốc lấy từ: mob farm khi KHÔNG bring, hoặc look pos
+-- khi bring ĐANG hoạt động (đang thực sự kéo mob phụ về):
+--   • Bring hoạt động (getgenv().IsBringingActive = true) -> đứng trên
+--     look pos: pos farm = Y look pos + offset.
+--   • Không bring / không có mob để bring -> đứng trên đầu mob farm
+--     như bình thường: pos farm = Y mob farm + offset.
+-- Offset: weapon thường = 30, weapon fruit (Blox Fruit) = 20.
 --------------------------------------------------------------------
 local function GetFarmCFrame(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return nil end
 
-    local mobPos = mob.HumanoidRootPart.Position
+    local basePos
+    if getgenv().IsBringingActive and getgenv()._BringLookPos then
+        basePos = getgenv()._BringLookPos
+    else
+        basePos = mob.HumanoidRootPart.Position
+    end
+
     local settings = getgenv().Settings or {}
     local weapon = settings["Select Weapon"] or "Melee"
 
     local yOffset = (weapon == "Blox Fruit") and 20 or 30
-    local playerY = mobPos.Y + yOffset
+    local playerY = basePos.Y + yOffset
 
-    return CFrame.new(Vector3.new(mobPos.X, playerY, mobPos.Z))
+    return CFrame.new(Vector3.new(basePos.X, playerY, basePos.Z))
 end
 
 -- Bring/Farm cycle:
@@ -2930,6 +2936,10 @@ end
 -- nếu chưa set thủ công thì lấy theo mob đang farm (getgenv().CurrentTargetMob)
 --------------------------------------------------------------------
 getgenv().BringMobCount = getgenv().BringMobCount or 2
+-- true khi bring THỰC SỰ đang kéo được ít nhất 1 mob phụ về look pos.
+-- Dùng để quyết định pos farm: bring hoạt động -> đứng theo Y look pos;
+-- không bring (tắt / không có mob để bring) -> đứng theo Y mob farm.
+getgenv().IsBringingActive = getgenv().IsBringingActive or false
 
 -- Look Pos: điểm neo bring, lấy từ vị trí mob farm (CurrentTargetMob).
 -- Chỉ cập nhật lại khi mob farm hiện tại đi ra ngoài phạm vi
@@ -2976,6 +2986,7 @@ function BringEnemy()
     if not getgenv().BringMob then
         getgenv().CurrentFarmTarget = nil
         getgenv()._BringLookPos = nil
+        getgenv().IsBringingActive = false
         ResetBringCycle()
         getgenv()._NextBringAt = 0
         return
@@ -2984,6 +2995,7 @@ function BringEnemy()
     local enemies = workspace:FindFirstChild("Enemies")
     if not enemies then
         getgenv().CurrentFarmTarget = nil
+        getgenv().IsBringingActive = false
         return
     end
 
@@ -3010,6 +3022,7 @@ function BringEnemy()
 
     if not MobName or MobName == "" then
         getgenv().CurrentFarmTarget = nil
+        getgenv().IsBringingActive = false
         return
     end
 
@@ -3062,6 +3075,7 @@ function BringEnemy()
 
     if count == 0 then
         getgenv().CurrentFarmTarget = nil
+        getgenv().IsBringingActive = false
         return
     end
 
@@ -3119,6 +3133,7 @@ function BringEnemy()
 
     if #validMobs == 0 then
         getgenv().CurrentFarmTarget = nil
+        getgenv().IsBringingActive = false
         return
     end
 
@@ -3288,6 +3303,11 @@ function BringEnemy()
         end
     end
 
+    -- Bring chỉ thực sự "hoạt động" khi có ít nhất 1 mob phụ được kéo về
+    -- cùng mob farm. Không có mob phụ nào (vd chỉ còn đúng 1 mob) ->
+    -- coi như không bring, farm đứng theo Y của mob farm như bình thường.
+    getgenv().IsBringingActive = broughtExtra > 0
+
     -- CurrentFarmTarget luôn là mob farm thật, không phải mob phụ.
     getgenv().CurrentFarmTarget = farmInfo and farmInfo.model or nearestTarget
 end
@@ -3306,6 +3326,7 @@ local function StartGlobalBringMob()
         if not getgenv().BringMob then
             getgenv().CurrentFarmTarget = nil
             getgenv()._BringLookPos = nil
+            getgenv().IsBringingActive = false
             return
         end
 
@@ -3327,6 +3348,7 @@ local function StartGlobalBringMob()
             pcall(BringEnemy)
         else
             getgenv().CurrentFarmTarget = nil
+            getgenv().IsBringingActive = false
             -- Do not clear _BringCycleBlockedPos here: the farm search must
             -- continue avoiding the old 50-stud area until it finds a new mob.
             if not getgenv()._BringCycleBlockedPos then
@@ -4537,8 +4559,10 @@ end
 --
 -- MakeSpawnPatroller(mobList, onePerMob):
 --   Trả về bộ điều khiển tuần tra { step, reset } cho 1 farm mode:
---     step(root, speed) -> tween tới waypoint hiện tại, tự xoay vòng qua
---                          waypoint kế tiếp sau khi đến gần + delay 0.5s.
+--     step(root, speed) -> tween tới waypoint hiện tại, khi đến gần +
+--                          delay 0.2s thì tự chuyển sang pos spawn GẦN
+--                          NHẤT còn lại (chưa đi qua). Hết toàn bộ pos
+--                          spawn (đã đi qua hết) -> lặp lại từ đầu.
 --                          Trả về CFrame đích nếu có waypoint, nil nếu
 --                          chưa quét được pos nào (để farm tự fallback).
 --     reset()           -> gọi khi tìm lại được mob, để lần hết mob kế
@@ -4567,17 +4591,52 @@ local function MakeSpawnPatroller(mobList, onePerMob)
     local idx        = 1
     local arrivedAt  = 0
     local lastScanAt = 0
+    local visited    = {}
 
     local function rebuild()
         waypoints  = GetMobSpawnWaypoints(mobList, onePerMob)
         lastScanAt = tick()
         if idx > #waypoints then idx = 1 end
         arrivedAt = 0
+        visited   = {}
     end
 
     local function reset()
         idx = 1
         arrivedAt = 0
+        visited   = {}
+    end
+
+    -- Chọn waypoint CHƯA ĐI QUA gần vị trí hiện tại nhất. Nếu tất cả đã
+    -- đi qua hết (hết spawn) -> reset visited và lặp lại từ đầu (chọn
+    -- gần nhất trong toàn bộ danh sách, coi như vòng lặp mới).
+    local function pickNearestNext(fromPos)
+        if not waypoints or #waypoints == 0 then return idx end
+
+        local hasUnvisited = false
+        for i = 1, #waypoints do
+            if not visited[i] then
+                hasUnvisited = true
+                break
+            end
+        end
+
+        if not hasUnvisited then
+            visited = {}
+        end
+
+        local bestIdx, bestDist = idx, math.huge
+        for i, cf in ipairs(waypoints) do
+            if not visited[i] then
+                local d = (cf.Position - fromPos).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    bestIdx = i
+                end
+            end
+        end
+
+        return bestIdx
     end
 
     local function step(root, speed)
@@ -4594,9 +4653,10 @@ local function MakeSpawnPatroller(mobList, onePerMob)
         if root and (root.Position - targetCF.Position).Magnitude <= 80 then
             if arrivedAt == 0 then
                 arrivedAt = tick()
-            elseif tick() - arrivedAt >= 0.5 then
+            elseif tick() - arrivedAt >= 0.2 then
                 arrivedAt = 0
-                idx = (idx % #waypoints) + 1  -- qua waypoint kế tiếp, hết vòng thì quay lại đầu
+                visited[idx] = true
+                idx = pickNearestNext(root.Position)
             end
         else
             arrivedAt = 0
