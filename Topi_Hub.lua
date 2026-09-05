@@ -3170,6 +3170,49 @@ function BringEnemy()
         return true
     end
 
+    ----------------------------------------------------------------
+    -- NOCLIP MOB:
+    -- Khi bring nhiều mob về chung 1 điểm (look pos), các mob va chạm
+    -- vật lý (CanCollide) đẩy nhau liên tục -> giật/lag. Noclip toàn bộ
+    -- BasePart của mob (không chỉ HumanoidRootPart) để chúng chụm đúng
+    -- 1 vị trí mà không đẩy/va chạm nhau hay va chạm map.
+    -- Cache theo mob (weak table) để không lặp lại GetDescendants mỗi
+    -- frame; tự bắt phần mới thêm (nón, phụ kiện...) qua DescendantAdded.
+    ----------------------------------------------------------------
+    getgenv()._NoclippedMobs = getgenv()._NoclippedMobs or setmetatable({}, {__mode = "k"})
+
+    local function NoclipMob(mob)
+        if not mob or getgenv()._NoclippedMobs[mob] then return end
+
+        for _, part in ipairs(mob:GetDescendants()) do
+            if part:IsA("BasePart") then
+                pcall(function()
+                    part.CanCollide = false
+                    part.CanTouch = false
+                end)
+            end
+        end
+
+        local conn
+        conn = mob.DescendantAdded:Connect(function(part)
+            if part:IsA("BasePart") then
+                pcall(function()
+                    part.CanCollide = false
+                    part.CanTouch = false
+                end)
+            end
+        end)
+
+        mob.AncestryChanged:Once(function(_, parent)
+            if not parent then
+                if conn then conn:Disconnect() end
+                getgenv()._NoclippedMobs[mob] = nil
+            end
+        end)
+
+        getgenv()._NoclippedMobs[mob] = true
+    end
+
     local function MoveMobToBringPosition(info, isFarmMob)
         if not info then return false end
         local mob, hrp, hum = info.model, info.root, info.humanoid
@@ -3182,6 +3225,8 @@ function BringEnemy()
         -- Đây là phần quan trọng để tránh mob ảo: server không bị client
         -- kéo một NPC mà client không sở hữu rồi sau đó rollback vị trí.
         if not IsNetworkOwner(hrp) then return false end
+
+        NoclipMob(mob)
 
         local targetCF = CFrame.new(BringPosition) * CFrame.new(
             math.random(-1, 1),
