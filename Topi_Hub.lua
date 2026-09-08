@@ -220,12 +220,12 @@ if World1 then
     IntermediateIslands = {
         {
             name = "Sky2",
-            pos = Vector3.new(-4607.82, 872.58, -1667.56),
+            pos = Vector3.new(-4209, 1117, -374),
             request = function()
                 local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
                 pcall(function()
                     -- Y từ Cobalt bị lỗi format (879039...); dùng 872.039 gần portal Sky2
-                    Event:InvokeServer("requestEntrance", Vector3.new(-4607.8232421875, 872.039099121094, -1667.5570068359))
+                    Event:InvokeServer("requestEntrance", Vector3.new(-4209, 1117, -374))
                 end)
                 pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky") end)
             end
@@ -242,21 +242,21 @@ if World1 then
         },
         {
             name = "Whirlpool",
-            pos = Vector3.new(3864.69, 5.41, -1926.21),
+            pos = Vector3.new(3864, 7, -1927),
             request = function()
                 local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
                 pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(3864.6879882812, 15.7369995117188, -1926.2139892578))
+                    Event:InvokeServer("requestEntrance", Vector3.new(3864, 7, -1927))
                 end)
             end
         },
         {
             name = "Sky3",
-            pos = Vector3.new(-7894.62, 5545.49, -380.2),
+            pos = Vector3.new(-6021, 5489, 2222),
             request = function()
                 local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
                 pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(-7894.6181640625, 5560.1420898438, -380.29098510742))
+                    Event:InvokeServer("requestEntrance", Vector3.new(-6021, 5489, 2222))
                 end)
                 pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky2") end)
             end
@@ -634,6 +634,38 @@ local function ResetTP_GetTPLocation(pos)
 end
 
 --------------------------------------------------------------------
+-- ResetTP_GetDirectSpawnName(targetPos)
+-- Tìm spawn point GẦN ĐÍCH NHẤT để SetLastSpawnPoint reset THẲNG 1 lần
+-- tới đích (không hop qua đảo trung gian khác). Dùng khi đích đã đủ gần
+-- (xem RESETTP_DIRECT_THRESHOLD ở doIntermediateTeleport).
+-- Ưu tiên spawn nằm trong đúng Location (bán kính) chứa đích; nếu đích
+-- không rơi vào bán kính Location nào đã biết -> fallback quét toàn bộ
+-- spawn đã biết, lấy spawn gần đích nhất.
+--------------------------------------------------------------------
+local function ResetTP_GetDirectSpawnName(targetPos)
+    if typeof(targetPos) == "CFrame" then targetPos = targetPos.Position end
+
+    local name = ResetTP_GetTPLocation(targetPos)
+    if name then return name end
+
+    if not next(ResetTP_BypassTpLocation) then
+        ResetTP_LoadBypassTPLocation()
+    end
+
+    local bestName, bestDist = nil, math.huge
+    for _, entries in pairs(ResetTP_BypassTpLocation) do
+        for _, entry in ipairs(entries) do
+            local d = ResetTP_Distance(targetPos, entry[2].Position)
+            if d < bestDist then
+                bestDist = d
+                bestName = entry[1]
+            end
+        end
+    end
+    return bestName
+end
+
+--------------------------------------------------------------------
 -- ResetTP_GetIslandName(pos)
 -- Trả về tên Location (đảo) chứa pos đang nằm trong bán kính.
 -- Dùng để skip spawnpoint cùng đảo hiện tại khi build hop chain.
@@ -680,6 +712,7 @@ local RESETTP_MIN_HOP_DIST    = 200    -- hop phải cách vị trí hiện tạ
 local RESETTP_CLOSE_ENOUGH    = 3000   -- đủ gần đích thì dừng chain, để tween/portal lo nốt quãng còn lại
 local RESETTP_MAX_HOPS        = 6      -- giới hạn số lần reset liên tiếp (tránh loop vô hạn)
 local RESETTP_PREFER_PORTAL_DIST = 3000 -- đích gần đảo trung gian trong phạm vi này -> ưu tiên Portal/Tiki, bỏ qua Reset
+local RESETTP_DIRECT_THRESHOLD   = 1500 -- đích cách player dưới ngưỡng này -> SetLastSpawnPoint THẲNG tới đích, không hop qua đảo khác
 
 -- Gom toàn bộ spawn point đã biết (loại trùng theo toạ độ)
 local function ResetTP_GetAllSpawns()
@@ -945,6 +978,7 @@ end
 
 ResetTP.LoadBypassTPLocation = ResetTP_LoadBypassTPLocation
 ResetTP.GetTPLocation = ResetTP_GetTPLocation
+ResetTP.GetDirectSpawnName = ResetTP_GetDirectSpawnName
 ResetTP.GetIslandName = ResetTP_GetIslandName
 ResetTP.IsOnTurtleIsland = ResetTP_IsOnTurtleIsland
 ResetTP.IsBlockedTurtleTarget = ResetTP_IsBlockedTurtleTarget
@@ -1159,7 +1193,25 @@ local function doIntermediateTeleport(targetCF, speed)
             and nearestIntermediateDist <= RESETTP_PREFER_PORTAL_DIST
 
         local hrp = not skipResetForPortal and ResetTP_GetHRP() or nil
-        local chain = hrp and ResetTP_FindHopChain(hrp.Position, targetCF.Position) or {}
+
+        ----------------------------------------------------------------
+        -- [FIX] Đích cách player dưới RESETTP_DIRECT_THRESHOLD (1500 stud)
+        -- -> SetLastSpawnPoint THẲNG tới spawn gần đích nhất, reset 1 lần
+        -- duy nhất, KHÔNG hop qua các đảo trung gian khác.
+        -- Đích xa hơn 1500 stud -> mới xây chuỗi hop qua từng đảo như cũ.
+        ----------------------------------------------------------------
+        local chain = {}
+        if hrp then
+            local distToTarget = ResetTP_Distance(hrp.Position, targetCF.Position)
+            if distToTarget < RESETTP_DIRECT_THRESHOLD then
+                local directName = ResetTP_GetDirectSpawnName(targetCF.Position)
+                if directName then
+                    chain = { {name = directName, cf = targetCF} }
+                end
+            else
+                chain = ResetTP_FindHopChain(hrp.Position, targetCF.Position)
+            end
+        end
 
         if #chain > 0 then
             _intermediateRunning = true
@@ -1264,7 +1316,7 @@ local function doIntermediateTeleport(targetCF, speed)
                         local dist = (h.Position - portalPos).Magnitude
                         local tween = TweenService:Create(
                             h,
-                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 190), 0.05), Enum.EasingStyle.Linear),
+                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 160), 0.05), Enum.EasingStyle.Linear),
                             {CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 0))}
                         )
                         tween:Play()
@@ -1289,7 +1341,7 @@ local function doIntermediateTeleport(targetCF, speed)
                         local dist = (h.Position - (tikiPos + Vector3.new(0, 2, 0))).Magnitude
                         local tween = TweenService:Create(
                             h,
-                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 190), 0.05), Enum.EasingStyle.Linear),
+                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 160), 0.05), Enum.EasingStyle.Linear),
                             {CFrame = CFrame.new(tikiPos + Vector3.new(0, 2, 0))}
                         )
                         tween:Play()
@@ -1318,7 +1370,7 @@ local function doIntermediateTeleport(targetCF, speed)
                     local distNow = (h.Position - target.Position).Magnitude
                     local tween = TweenService:Create(
                         h,
-                        TweenInfo.new(math.max(distNow / (speed or getgenv().FlySpeed or 190), 0.05), Enum.EasingStyle.Linear),
+                        TweenInfo.new(math.max(distNow / (speed or getgenv().FlySpeed or 160), 0.05), Enum.EasingStyle.Linear),
                         {CFrame = target}
                     )
                     tween:Play()
@@ -1686,7 +1738,7 @@ end
 -- CÁC BIẾN CẤU HÌNH FARM (FARM SETTINGS)
 --------------------------------------------------------------------
 getgenv().BringMob = true           -- Bật tính năng kéo mob lại gần (giúp farm nhanh hơn)
-getgenv().FlySpeed = 280            -- Tốc độ bay (càng cao bay càng nhanh, nhưng dễ bị phát hiện)
+getgenv().FlySpeed = 160            -- Tốc độ bay (max 160, càng cao bay càng nhanh, nhưng dễ bị phát hiện)
 getgenv().BringMobCount = 2         -- Số mob bring (2-6, gồm cả mob đang farm)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 getgenv().SmoothMode = false
@@ -2077,10 +2129,10 @@ _G.SelectWeapon = nil
 
 Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
-    Description = "Tốc độ bay / tween (50 - 190)",
-    Default = 190,
+    Description = "Tốc độ bay / tween (50 - 160)",
+    Default = 160,
     Min = 50,
-    Max = 190,
+    Max = 160,
     Rounding = 1,
     Callback = function(v)
         getgenv().FlySpeed = v
@@ -2945,13 +2997,24 @@ getgenv().IsBringingActive = getgenv().IsBringingActive or false
 -- Chỉ cập nhật lại khi mob farm hiện tại đi ra ngoài phạm vi
 -- BRING_LOOKPOS_TOLERANCE stud tính từ look pos cũ, tránh việc farm
 -- liên tục đổi mob gần nhất làm look pos (và do đó cả mob + player) nhảy lung tung.
-local BRING_LOOKPOS_TOLERANCE = 3
+-- Mob farm vẫn còn nằm trong 20 stud tính từ look pos cũ -> giữ nguyên look pos.
+local BRING_LOOKPOS_TOLERANCE = 20
 -- Phạm vi (stud) quanh look pos (vị trí mob farm) mà bring được phép hoạt động.
--- Chỉ mob cùng loại nằm trong bán kính này mới bị kéo về; mob ở xa hơn bị bỏ qua.
+-- Đây là NỬA CẠNH của một vùng hình vuông (không phải bán kính hình tròn):
+-- tâm là look pos, mỗi cạnh cách tâm đúng BRING_RANGE stud theo trục X và Z.
+-- Trục Y (trên/dưới) KHÔNG được tính -> mob nằm trên cao hay dưới thấp so với
+-- look pos vẫn được coi là "trong vùng" miễn X/Z nằm trong hình vuông này.
 local BRING_RANGE = 300
 local BRING_INTERVAL = 0.2
 getgenv()._NextBringAt = getgenv()._NextBringAt or 0
 getgenv()._BringLookPos = getgenv()._BringLookPos or nil
+
+-- Kiểm tra 1 vị trí có nằm trong vùng hình vuông BRING_RANGE quanh center
+-- hay không (chỉ xét X/Z, bỏ qua Y theo yêu cầu "trên hay dưới đều tính").
+local function IsInBringZone(pos, center)
+    return math.abs(pos.X - center.X) <= BRING_RANGE
+        and math.abs(pos.Z - center.Z) <= BRING_RANGE
+end
 
 local function GetMobRoot(v)
     local root = v:FindFirstChild("HumanoidRootPart")
@@ -3117,14 +3180,15 @@ function BringEnemy()
     local BringPosition = lookPos
 
     ----------------------------------------------------------------
-    -- GIỚI HẠN BRING: chỉ bring mob CÙNG LOẠI nằm trong phạm vi
-    -- BRING_RANGE stud, tâm là look pos (vị trí mob farm). Mob cùng
-    -- tên nhưng ở ngoài phạm vi này sẽ bị loại, không kéo về.
+    -- Lọc mob CÙNG TÊN (MobName) còn nằm trong vùng vuông BRING_RANGE
+    -- quanh look pos. Danh sách này chỉ dùng để xác định mob farm
+    -- (nearestTarget/farmInfo) và để tracking cycle giết mob theo tên,
+    -- KHÔNG dùng để quyết định mob nào được bring (xem allNearbyMobs).
     ----------------------------------------------------------------
     do
         local inRange = {}
         for _, info in ipairs(validMobs) do
-            if (info.position - lookPos).Magnitude <= BRING_RANGE then
+            if IsInBringZone(info.position, lookPos) then
                 table.insert(inRange, info)
             end
         end
@@ -3135,6 +3199,25 @@ function BringEnemy()
         getgenv().CurrentFarmTarget = nil
         getgenv().IsBringingActive = false
         return
+    end
+
+    ----------------------------------------------------------------
+    -- BRING TẤT CẢ MOB TRONG VÙNG (không phân biệt loại):
+    -- Đã xóa logic "chỉ bring mob cùng loại với mob farm". Thay vào đó,
+    -- BẤT KỲ mob nào còn sống, nằm trong vùng vuông BRING_RANGE quanh
+    -- look pos (vị trí mob farm) đều được coi là ứng viên để bring,
+    -- không quan trọng tên/loại quái.
+    ----------------------------------------------------------------
+    local allNearbyMobs = {}
+    for _, mob in ipairs(enemies:GetChildren()) do
+        local hum = mob:FindFirstChildOfClass("Humanoid")
+        local hrp = GetMobRoot(mob)
+        if hum and hrp and hum.Health > 0 and hrp:IsDescendantOf(workspace) then
+            local pos = hrp.Position
+            if IsInBringZone(pos, lookPos) then
+                table.insert(allNearbyMobs, {model = mob, root = hrp, humanoid = hum, position = pos})
+            end
+        end
     end
 
     -- Giữ lại target gần player nhất để các logic khác nếu cần có thể
@@ -3284,17 +3367,18 @@ function BringEnemy()
 
     -- Chọn thêm đúng số mob theo slider, KHÔNG chọn lại farm mob.
     -- Quan trọng: mob phụ được ưu tiên theo khoảng cách tới MOB FARM,
-    -- không theo player/look position.
+    -- không theo player/look position. Nguồn chọn là allNearbyMobs
+    -- (mọi loại mob trong vùng), không còn giới hạn cùng tên với mob farm.
     local farmReferencePos = farmInfo and farmInfo.root and farmInfo.root.Position
         or BringPosition
 
-    table.sort(validMobs, function(a, b)
+    table.sort(allNearbyMobs, function(a, b)
         return (a.position - farmReferencePos).Magnitude
             < (b.position - farmReferencePos).Magnitude
     end)
 
     local broughtExtra = 0
-    for _, info in ipairs(validMobs) do
+    for _, info in ipairs(allNearbyMobs) do
         if broughtExtra >= extraBring then break end
         if not farmInfo or info.model ~= farmInfo.model then
             if MoveMobToBringPosition(info, false) then
@@ -4246,7 +4330,7 @@ local function TeleportToSubmerged(finalPos)
         -- Bước 5 (tuỳ chọn): Fly đến vị trí farm bên trong island
         if finalPos then
             local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
-            TweenToPos(farmCF, getgenv().FlySpeed or 190)
+            TweenToPos(farmCF, getgenv().FlySpeed or 160)
 
             -- Bắt buộc tween tới finalPos, không timeout
             while myId == _submergedCallId and getgenv().IsFarming do
@@ -4255,7 +4339,7 @@ local function TeleportToSubmerged(finalPos)
                 if root and (root.Position - finalPos).Magnitude <= 100 then
                     break
                 end
-                TweenToPos(farmCF, getgenv().FlySpeed or 190)
+                TweenToPos(farmCF, getgenv().FlySpeed or 160)
             end
         end
     end)
@@ -6610,7 +6694,7 @@ Tabs.FruitRaid:CreateButton({
 
         local targetCF = bestPad.Pad.CFrame * CFrame.new(0, 5, 0)
         local dist = (hrp.Position - targetCF.Position).Magnitude
-        local speed = getgenv().FlySpeed or 200
+        local speed = getgenv().FlySpeed or 160
 
         -- Fly trực tiếp không phụ thuộc FarmDungeon/shouldTween
         local tween = TweenService:Create(hrp,
@@ -7137,7 +7221,7 @@ local function startRaidFarmLoop(isActiveFn, isMultiRaid)
                     )
                 end
 
-                TweenObject(root, multiRaidSafeCF, getgenv().FlySpeed or 190)
+                TweenObject(root, multiRaidSafeCF, getgenv().FlySpeed or 160)
                 getgenv().CurrentTargetMob = nil
                 return
             else
@@ -7158,7 +7242,7 @@ local function startRaidFarmLoop(isActiveFn, isMultiRaid)
                 TweenObject(
                     root,
                     island5.CFrame * CFrame.new(0, 500, 0),
-                    getgenv().FlySpeed or 190
+                    getgenv().FlySpeed or 160
                 )
                 return
             end
@@ -7417,12 +7501,12 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                         if hostHRP and not hostAtWait then
                             -- Host chưa tới chỗ chờ → tween bám theo host
                             local followCF = CFrame.new(hostHRP.Position + Vector3.new(0, 3, 0))
-                            TweenToPos(followCF, getgenv().FlySpeed or 190)
+                            TweenToPos(followCF, getgenv().FlySpeed or 160)
                         else
                             -- Host đã ở vị trí chờ (hoặc không tìm thấy host) → đứng pos trống
                             local emptyPos = FindEmptyWaitPos()
                             if (root.Position - emptyPos).Magnitude > RAID_WAIT_RADIUS then
-                                TweenToPos(CFrame.new(emptyPos + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 190)
+                                TweenToPos(CFrame.new(emptyPos + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 160)
                             end
                         end
                         task.wait(0.35)
@@ -7433,12 +7517,12 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                     do
                         local root = getRoot()
                         if root and (root.Position - RAID_BUY_POS).Magnitude > 15 then
-                            TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 190)
+                            TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 160)
                             repeat
                                 task.wait(0.15)
                                 root = getRoot()
                                 if root and (root.Position - RAID_BUY_POS).Magnitude > 20 then
-                                    TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 190)
+                                    TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 160)
                                 end
                             until not getgenv().AutoRaid
                                 or not root
@@ -7454,7 +7538,7 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                             if AreSelectedMultiPlayersReady() then break end
                             local root = getRoot()
                             if root and (root.Position - RAID_BUY_POS).Magnitude > 25 then
-                                TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 190)
+                                TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 160)
                             end
                             task.wait(0.4)
                         end
@@ -7674,13 +7758,13 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                     if alreadyNear then
                         -- Đã ở trong Submerged Island → fly thẳng đến vị trí farm
                         local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
-                        TweenToPos(farmCF, getgenv().FlySpeed or 190)
+                        TweenToPos(farmCF, getgenv().FlySpeed or 160)
 
                         while getgenv().TravelToIsland do
                             task.wait(0.15)
                             local r = getRoot()
                             if r and (r.Position - finalPos).Magnitude <= 100 then break end
-                            TweenToPos(farmCF, getgenv().FlySpeed or 190)
+                            TweenToPos(farmCF, getgenv().FlySpeed or 160)
                         end
                     else
                         -- Chưa ở gần: đi qua NPC ngoài mặt nước, kích hoạt
@@ -7702,7 +7786,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
 
                 local targetCF = CFrame.new(data.pos + Vector3.new(0, 5, 0))
                 -- TweenToPos tự xử lý tele trung gian nếu TelePorto bật
-                TweenToPos(targetCF, getgenv().FlySpeed or 190)
+                TweenToPos(targetCF, getgenv().FlySpeed or 160)
 
                 -- Bắt buộc tween tới đích, không timeout
                 while getgenv().TravelToIsland do
@@ -7711,7 +7795,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                     if root and (root.Position - data.pos).Magnitude <= 100 then
                         break
                     end
-                    TweenToPos(targetCF, getgenv().FlySpeed or 190)
+                    TweenToPos(targetCF, getgenv().FlySpeed or 160)
                 end
 
                 -- Tắt toggle sau khi đến nơi
@@ -7776,7 +7860,7 @@ spawn(function()
                 for _, v in pairs(ReplicatedStorage.NPCs:GetChildren()) do
                     if v.Name == selectedNPC and v:FindFirstChild("HumanoidRootPart") then
                         -- TweenToPos tự xử lý tele trung gian nếu TelePorto bật
-                        TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 190)
+                        TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 160)
                         break
                     end
                 end
@@ -7921,7 +8005,7 @@ local function BuyFightingStyle(styleName, styleData, enabled)
             startFly()
 
             local targetCF = CFrame.new(targetPos + Vector3.new(0, 3, 0))
-            TweenToPos(targetCF, getgenv().FlySpeed or 190)
+            TweenToPos(targetCF, getgenv().FlySpeed or 160)
 
             -- Bắt buộc tween tới NPC, không timeout
             repeat
@@ -7933,7 +8017,7 @@ local function BuyFightingStyle(styleName, styleData, enabled)
                 elseif (r.Position - targetPos).Magnitude <= BUY_PROXIMITY then
                     break
                 else
-                    TweenToPos(targetCF, getgenv().FlySpeed or 190)
+                    TweenToPos(targetCF, getgenv().FlySpeed or 160)
                 end
             until not _buyStyleActive[styleName]
 
