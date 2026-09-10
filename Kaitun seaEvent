@@ -931,13 +931,40 @@ local function IsMobAlive(mob, genvKey)
 end
 
 -- ─── Lấy CFrame farm chính xác theo từng loại mob ────────────────────
+-- ─── Offset Y khi WeaponConfig = "Gun" ───────────────────────────────
+-- Shark / Piranha / TerrorShark / FishCrewMember  → Ymob + 100
+-- Haunted Crew Member / PirateGrandBrigade / FishBoat → Ymob + 150
+-- SeaBeast (Gun) dùng Orbit riêng (radius 100, Y + 100)
+local GUN_Y_OFFSET_NORMAL = 100
+local GUN_Y_OFFSET_EXTRA  = 150   -- Haunted + boats
+local GUN_ORBIT_RADIUS    = 100
+local GUN_ORBIT_Y_OFFSET  = 100
+local GUN_ORBIT_SPEED     = 3.5
+
+-- Flag né skill (khai báo sớm để Orbit / Dodge dùng chung)
+local seaBeastIsDodging  = false
+local seaBeastDodgeConn  = nil
+
+local function IsGunWeapon()
+    return (_G.ChooseWP or Config.Settings.WeaponConfig or "") == "Gun"
+end
+
 local function GetMobFarmCFrame(mob, genvKey)
     local data = SEA_MOB_MAP[genvKey]
     if not data then return nil end
 
+    local useGunLogic = IsGunWeapon()
+
     if data.isBoat then
         local eng = mob:FindFirstChild("Engine")
         if not eng then return nil end
+
+        if useGunLogic then
+            -- Gun: đứng trên đầu boat với Y = Engine.Y + 150
+            return CFrame.new(eng.Position.X, eng.Position.Y + GUN_Y_OFFSET_EXTRA, eng.Position.Z)
+        end
+
+        -- Logic cũ (không phải Gun)
         if mob.Name == "PirateGrandBrigade" or mob.Name == "PirateBrigade" then
             local offset = (mob.Name == "PirateGrandBrigade")
                 and CFrame.new(0, -50, -50)
@@ -951,10 +978,24 @@ local function GetMobFarmCFrame(mob, genvKey)
     elseif data.isSeaBeast then
         local rp = mob:FindFirstChild("HumanoidRootPart")
         if not rp then return nil end
+        if useGunLogic then
+            -- Khi Gun: trả về vị trí tạm (Orbit sẽ override), Y + 100
+            return CFrame.new(rp.Position.X, rp.Position.Y + GUN_ORBIT_Y_OFFSET, rp.Position.Z)
+        end
+        -- Logic cũ
         return CFrame.new(rp.Position.X, 35, rp.Position.Z)
     else
+        -- Mob thường (Shark, Piranha, TerrorShark, FishCrew, Haunted...)
         local rp = mob:FindFirstChild("HumanoidRootPart")
         if not rp then return nil end
+
+        if useGunLogic then
+            local isExtra = (genvKey == "AutoHauntedCrewEnabled")
+            local yOff = isExtra and GUN_Y_OFFSET_EXTRA or GUN_Y_OFFSET_NORMAL
+            return CFrame.new(rp.Position.X, rp.Position.Y + yOff, rp.Position.Z)
+        end
+
+        -- Logic cũ theo weapon
         local wp = _G.ChooseWP or "Melee"
         local yOff
         if wp == "Melee" or wp == "Sword" then
@@ -962,10 +1003,76 @@ local function GetMobFarmCFrame(mob, genvKey)
         elseif wp == "Blox Fruit" then
             yOff = 15
         else
-            yOff = 70  -- Gun
+            yOff = 70  -- Gun (fallback, nhưng đã bị bắt ở trên)
         end
         return CFrame.new(rp.Position.X, rp.Position.Y + yOff, rp.Position.Z)
     end
+end
+
+-- ─── ORBIT / SPIN quanh SeaBeast (chỉ khi Gun) ───────────────────────
+-- Quay liên tục quanh HRP của SeaBeast với bán kính 100, Y = mob.Y + 100
+local orbitConn = nil
+local orbitAngle = 0
+
+local function StopOrbit()
+    if orbitConn then
+        orbitConn:Disconnect()
+        orbitConn = nil
+    end
+    orbitAngle = 0
+end
+
+local function StartOrbitAroundSeaBeast(mob, stopFn)
+    StopOrbit()
+    if not mob or not IsGunWeapon() then return end
+
+    local rp = mob:FindFirstChild("HumanoidRootPart")
+    if not rp then return end
+
+    orbitAngle = 0
+    local lastTick = tick()
+
+    orbitConn = RunService.Heartbeat:Connect(function()
+        if stopFn and stopFn() then
+            StopOrbit()
+            return
+        end
+        if not IsMobAlive(mob, "AutoSeaBeastEnabled") or not IsPlayerAlive() then
+            StopOrbit()
+            return
+        end
+
+        -- Bỏ qua khi đang né skill SeaBeast (để Tween dodge chạy)
+        if seaBeastIsDodging then
+            lastTick = tick()
+            return
+        end
+
+        local now = tick()
+        local dt = now - lastTick
+        lastTick = now
+
+        orbitAngle = orbitAngle + GUN_ORBIT_SPEED * dt
+
+        local center = rp.Position
+        local offsetX = math.cos(orbitAngle) * GUN_ORBIT_RADIUS
+        local offsetZ = math.sin(orbitAngle) * GUN_ORBIT_RADIUS
+        local targetPos = Vector3.new(
+            center.X + offsetX,
+            center.Y + GUN_ORBIT_Y_OFFSET,
+            center.Z + offsetZ
+        )
+
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            -- Giữ hướng nhìn về phía mob
+            local lookAt = CFrame.lookAt(targetPos, center)
+            pcall(function()
+                hrp.CFrame = lookAt
+            end)
+        end
+    end)
 end
 
 --// ===================================================================
@@ -1001,11 +1108,13 @@ end
 -- Hành động né: khi thấy SeaBeast dùng skill -> tween lên Y+150. Chờ tới khi
 -- SeaBeast dùng skill xong HOẶC đã đợi 1s (tuỳ cái nào tới trước), rồi tween
 -- xuống farm tiếp.
-local seaBeastDodgeConn  = nil
-local seaBeastIsDodging  = false
 
 local function TweenBackToSeaBeastFarm()
     if getgenv().AutoSeaBeastEnabled then
+        -- Nếu đang Orbit (Gun) thì chỉ cần tắt flag, Orbit sẽ tự resume
+        if IsGunWeapon() and orbitConn then
+            return
+        end
         local mob = Workspace.SeaBeasts:FindFirstChild("SeaBeast1")
             or Workspace.SeaBeasts:FindFirstChild("SeaBeast")
         if mob then
@@ -1138,6 +1247,7 @@ local function StopSeaFarm()
     SetBodyVelocity(false)
     StopWeaponLoop()
     StopSkillSpamLoop()
+    StopOrbit()
     if activeTween then activeTween:Cancel() activeTween = nil end
     CancelBoatTween()
     if boatNoclipConn then boatNoclipConn:Disconnect() boatNoclipConn = nil end
@@ -1190,6 +1300,8 @@ local function SeaFarmLoop()
 
                 if isBoatOrBeast2 then
                     local alive2 = true
+                    local isSeaBeastGun = (data2.isSeaBeast and IsGunWeapon())
+
                     StartSkillSpamLoop(function()
                         return not (seaFarmRunning and alive2
                             and getgenv().AutoSailEnabled == false
@@ -1197,16 +1309,39 @@ local function SeaFarmLoop()
                             and IsPlayerAlive())
                     end)
 
-                    local timeout = 0
-                    while seaFarmRunning and getgenv().AutoSailEnabled == false
-                        and IsAnyMobToggleOn()
-                        and IsPlayerAlive()
-                        and IsMobAlive(mob, genvKey) do
-                        local tgtCF = GetMobFarmCFrame(mob, genvKey)
-                        if tgtCF then TweenTo(tgtCF) end
-                        task.wait(0.1)
-                        timeout += 0.1
-                        if timeout > 60 then break end
+                    if isSeaBeastGun then
+                        -- Orbit spin quanh SeaBeast (Gun only)
+                        StartOrbitAroundSeaBeast(mob, function()
+                            return not (seaFarmRunning and alive2
+                                and getgenv().AutoSailEnabled == false
+                                and IsAnyMobToggleOn()
+                                and IsPlayerAlive()
+                                and IsMobAlive(mob, genvKey))
+                        end)
+
+                        local timeout = 0
+                        while seaFarmRunning and getgenv().AutoSailEnabled == false
+                            and IsAnyMobToggleOn()
+                            and IsPlayerAlive()
+                            and IsMobAlive(mob, genvKey) do
+                            task.wait(0.1)
+                            timeout += 0.1
+                            if timeout > 60 then break end
+                        end
+                        StopOrbit()
+                    else
+                        -- Logic cũ: Tween tới vị trí farm
+                        local timeout = 0
+                        while seaFarmRunning and getgenv().AutoSailEnabled == false
+                            and IsAnyMobToggleOn()
+                            and IsPlayerAlive()
+                            and IsMobAlive(mob, genvKey) do
+                            local tgtCF = GetMobFarmCFrame(mob, genvKey)
+                            if tgtCF then TweenTo(tgtCF) end
+                            task.wait(0.1)
+                            timeout += 0.1
+                            if timeout > 60 then break end
+                        end
                     end
 
                     alive2 = false
@@ -1231,6 +1366,7 @@ local function SeaFarmLoop()
 
                 SetNoclip(false)
                 SetBodyVelocity(false)
+                StopOrbit()
                 if activeTween then activeTween:Cancel() activeTween = nil end
 
                 return
@@ -1343,17 +1479,36 @@ local function SeaFarmLoop()
 
                     if isBoatOrBeast then
                         local alive = true
+                        local isSeaBeastGun = (data.isSeaBeast and IsGunWeapon())
+
                         StartSkillSpamLoop(function()
                             return not (seaFarmRunning and alive and IsAnyMobToggleOn() and IsPlayerAlive())
                         end)
 
-                        local timeout = 0
-                        while seaFarmRunning and IsPlayerAlive() and IsMobAlive(mob, genvKey) do
-                            local tgtCF = GetMobFarmCFrame(mob, genvKey)
-                            if tgtCF then TweenTo(tgtCF) end
-                            task.wait(0.1)
-                            timeout += 0.1
-                            if timeout > 60 then break end
+                        if isSeaBeastGun then
+                            -- Orbit spin quanh SeaBeast (Gun only)
+                            StartOrbitAroundSeaBeast(mob, function()
+                                return not (seaFarmRunning and alive and IsAnyMobToggleOn()
+                                    and IsPlayerAlive() and IsMobAlive(mob, genvKey))
+                            end)
+
+                            local timeout = 0
+                            while seaFarmRunning and IsPlayerAlive() and IsMobAlive(mob, genvKey) do
+                                task.wait(0.1)
+                                timeout += 0.1
+                                if timeout > 60 then break end
+                            end
+                            StopOrbit()
+                        else
+                            -- Logic cũ: Tween tới vị trí farm
+                            local timeout = 0
+                            while seaFarmRunning and IsPlayerAlive() and IsMobAlive(mob, genvKey) do
+                                local tgtCF = GetMobFarmCFrame(mob, genvKey)
+                                if tgtCF then TweenTo(tgtCF) end
+                                task.wait(0.1)
+                                timeout += 0.1
+                                if timeout > 60 then break end
+                            end
                         end
 
                         alive = false
@@ -1378,6 +1533,7 @@ local function SeaFarmLoop()
 
                 SetNoclip(false)
                 SetBodyVelocity(false)
+                StopOrbit()
                 if activeTween then activeTween:Cancel() activeTween = nil end
 
                 if not seaFarmRunning then return end
@@ -1434,6 +1590,7 @@ player.CharacterAdded:Connect(function(char)
 
     StopSkillSpamLoop()
     StopWeaponLoop()
+    StopOrbit()
     if activeTween then activeTween:Cancel() activeTween = nil end
     CancelBoatTween()
     if seaFarmThread then task.cancel(seaFarmThread) seaFarmThread = nil end
