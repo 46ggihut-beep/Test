@@ -1,6 +1,41 @@
 --// ================= LOAD FLUENT RENEWED =================
-local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
-local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
+local function _SafeLoadUrl(url)
+    local src, err
+    local ok, res = pcall(function()
+        if syn and syn.request then
+            local r = syn.request({Url = url, Method = "GET"})
+            return r.Body
+        end
+        if request then
+            local r = request({Url = url, Method = "GET"})
+            return r.Body
+        end
+        if http_request then
+            local r = http_request({Url = url, Method = "GET"})
+            return r.Body
+        end
+        if game.HttpGet then
+            return game:HttpGet(url)
+        end
+        return game:HttpGetAsync(url)
+    end)
+    if ok and type(res) == "string" and #res > 0 then
+        src = res
+    else
+        err = tostring(res)
+    end
+    if not src then
+        error("[Topi Hub] Download failed: " .. tostring(url) .. " | " .. tostring(err))
+    end
+    local fn, lerr = loadstring(src)
+    if not fn then
+        error("[Topi Hub] loadstring failed: " .. tostring(lerr))
+    end
+    return fn()
+end
+
+local Library = _SafeLoadUrl("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau")
+local InterfaceManager = _SafeLoadUrl("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau")
 
 local Window = Library:CreateWindow({
     Title = "Topi Hub [ Beta V0.83 ]",
@@ -2322,9 +2357,6 @@ function stopFly()
     if hum then
         pcall(function() hum.PlatformStand = false end)
     end
-end
-        end
-    end)
 end
 
 --// ================= DUAL QUEST PAIRINGS =================
