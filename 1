@@ -1,41 +1,6 @@
 --// ================= LOAD FLUENT RENEWED =================
-local function _SafeLoadUrl(url)
-    local src, err
-    local ok, res = pcall(function()
-        if syn and syn.request then
-            local r = syn.request({Url = url, Method = "GET"})
-            return r.Body
-        end
-        if request then
-            local r = request({Url = url, Method = "GET"})
-            return r.Body
-        end
-        if http_request then
-            local r = http_request({Url = url, Method = "GET"})
-            return r.Body
-        end
-        if game.HttpGet then
-            return game:HttpGet(url)
-        end
-        return game:HttpGetAsync(url)
-    end)
-    if ok and type(res) == "string" and #res > 0 then
-        src = res
-    else
-        err = tostring(res)
-    end
-    if not src then
-        error("[Topi Hub] Download failed: " .. tostring(url) .. " | " .. tostring(err))
-    end
-    local fn, lerr = loadstring(src)
-    if not fn then
-        error("[Topi Hub] loadstring failed: " .. tostring(lerr))
-    end
-    return fn()
-end
-
-local Library = _SafeLoadUrl("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau")
-local InterfaceManager = _SafeLoadUrl("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau")
+local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Library:CreateWindow({
     Title = "Topi Hub [ Beta V0.83 ]",
@@ -246,24 +211,26 @@ local DungeonPlaceId = 73902483975735 -- PlaceId của Dungeon
 -- Xác định team của người chơi (Pirates hoặc Marines)
 local TeamSelf = player.Team and player.Team.Name or "Pirates"
 
---------------------------------------------------------------------
--- VEHICLE FLY STATE (thay thế toàn bộ tween + tele trung gian/portal/reset)
--- shouldFly        : true khi fly được phép chạy
--- _flyTargetCF     : CFrame đích hiện tại
--- _flySpeed        : tốc độ (studs/s) — cùng cách tính với tween cũ: dist/speed
--- BodyVelocity + BodyGyro gắn vào HRP để di chuyển mượt theo hướng đích
---------------------------------------------------------------------
-local shouldTween = false  -- alias tương thích (noclip / farm loops vẫn check)
-local shouldFly   = false
-local _flyTargetCF = nil
-local _flySpeed    = 160
-local _flyBV       = nil
-local _flyBG       = nil
-local _flyConn     = nil
-local _intermediateRunning = false  -- stub: luôn false (đã bỏ tele trung gian)
 
--- Forward-declare _tp (UI/farm gọi trước khi gán thân hàm)
+--------------------------------------------------------------------
+-- FLY STATE VARIABLES (chest-style)
+-- shouldTween       : true khi fly được phép chạy
+-- currentTween      : tween đang chạy hiện tại (nil = đứng yên)
+-- currentTweenSpeed : tốc độ của tween hiện tại (để phát hiện đổi speed)
+-- currentTweenTarget: vị trí đích của tween hiện tại (để phát hiện mob di chuyển)
+--------------------------------------------------------------------
+local shouldTween        = false
+local currentTween       = nil
+local currentTweenSpeed  = 0
+local currentTweenTarget = nil  -- Vector3 đích, dùng để phát hiện mob đổi hướng
+
+-- Forward-declare _tp: UI callbacks gọi _tp trước khi
+-- thân hàm được gán bên dưới. Không khai báo sớm → Lua resolve thành global nil
+-- → lỗi "attempt to call a nil value" tại các dòng _tp(...).
 local _tp
+
+
+
 
 --// ================= TOGGLE BUTTON UI (ĐÃ FIX DRAG) =================
 local screenGui = Instance.new("ScreenGui", game.CoreGui)
@@ -619,6 +586,7 @@ getgenv().BringMobCount = 2         -- Số mob bring (2-6, gồm cả mob đang
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 getgenv().SmoothMode = false
 getgenv().Noclip = false            -- Xuyên tường (tắt va chạm với địa hình)
+
 getgenv().IsFarming = false         -- Trạng thái đang farm (true = đang farm, false = dừng)
 getgenv().AutoBusoLoop = false      -- Tự động bật Buso Haki liên tục
 getgenv().AutoClick = false         -- Auto Click: tắt = farm chỉ đánh mob; bật = đánh liên tục mob + player
@@ -996,10 +964,10 @@ _G.SelectWeapon = nil
 
 Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
-    Description = "Tốc độ bay / tween (50 - 160)",
+    Description = "Tốc độ bay / tween (50 - 280)",
     Default = 160,
     Min = 50,
-    Max = 160,
+    Max = 280,
     Rounding = 1,
     Callback = function(v)
         getgenv().FlySpeed = v
@@ -1515,134 +1483,47 @@ end
 
 --// ================= HELPER FUNCTIONS =================
 -- ============================================================
--- LÕI VEHICLE FLY (_tp) — thay thế TweenService
--- Cùng cách tính speed với tween cũ: di chuyển studs/s = FlySpeed
--- BodyVelocity.Velocity = direction * speed  (cùng hiệu ứng thời gian tới đích)
+-- LÕI FLY MỚI (_tp) - Topi Chest style, tích hợp cho Topi Hub
+-- - Khi đang tween đúng speed → để chạy tiếp, không cancel/recreate
+-- - Khi speed đổi → cancel và tạo tween mới
 -- ============================================================
 
-local function _cleanupFlyForces()
-    if _flyBV then pcall(function() _flyBV:Destroy() end); _flyBV = nil end
-    if _flyBG then pcall(function() _flyBG:Destroy() end); _flyBG = nil end
-end
-
-local function _ensureFlyForces(hrp)
-    if _flyBV and _flyBV.Parent == hrp and _flyBG and _flyBG.Parent == hrp then
-        return
-    end
-    _cleanupFlyForces()
-
-    local bv = Instance.new("BodyVelocity")
-    bv.Name = "TopiVehicleFlyBV"
-    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-    bv.P = 1250
-    bv.Velocity = Vector3.zero
-    bv.Parent = hrp
-    _flyBV = bv
-
-    local bg = Instance.new("BodyGyro")
-    bg.Name = "TopiVehicleFlyBG"
-    bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-    bg.P = 9e4
-    bg.D = 1000
-    bg.CFrame = hrp.CFrame
-    bg.Parent = hrp
-    _flyBG = bg
-end
-
-local function _stopFlyLoop()
-    if _flyConn then
-        pcall(function() _flyConn:Disconnect() end)
-        _flyConn = nil
-    end
-    _cleanupFlyForces()
-    _flyTargetCF = nil
-end
-
-local function _startFlyLoop()
-    if _flyConn then return end
-    _flyConn = RunService.Heartbeat:Connect(function(dt)
-        if not shouldFly and not shouldTween then
-            if _flyBV then _flyBV.Velocity = Vector3.zero end
-            return
-        end
-        if getgenv().BuddhaTransforming then
-            if _flyBV then _flyBV.Velocity = Vector3.zero end
-            return
-        end
-
-        local char = player.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hrp or not hum or hum.Health <= 0 then
-            _cleanupFlyForces()
-            return
-        end
-
-        -- PlatformStand giúp vehicle-fly ổn định (không bị animation kéo xuống)
-        if not hum.PlatformStand then
-            hum.PlatformStand = true
-        end
-
-        _ensureFlyForces(hrp)
-
-        local targetCF = _flyTargetCF
-        if not targetCF then
-            _flyBV.Velocity = Vector3.zero
-            return
-        end
-
-        local pos = hrp.Position
-        local goal = targetCF.Position
-        local delta = goal - pos
-        local dist = delta.Magnitude
-
-        -- Cùng ngưỡng "đã đến nơi" với tween cũ
-        if dist < 1 then
-            _flyBV.Velocity = Vector3.zero
-            hrp.CFrame = targetCF
-            return
-        end
-
-        -- Speed: đúng như tween cũ (studs/s). Clamp nhỏ để tránh NaN.
-        local speed = tonumber(_flySpeed) or getgenv().FlySpeed or 160
-        if speed < 1 then speed = 1 end
-
-        local dir = delta.Unit
-        -- Giữ orientation hướng về đích (giống cảm giác bay)
-        local look = CFrame.lookAt(pos, goal)
-        _flyBG.CFrame = look
-        _flyBV.Velocity = dir * speed
-
-        -- Zero assembly velocity nhiễu từ physics khác
-        pcall(function()
-            hrp.AssemblyLinearVelocity = _flyBV.Velocity
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end)
-    end)
-end
-
--- Gán vào local _tp đã forward-declare
+-- Gán vào local _tp đã forward-declare ở trên (không dùng local function
+-- mới — sẽ tạo local shadow và các chỗ gọi sớm vẫn trỏ global nil).
 _tp = function(targetCF, speed)
-    if not shouldTween and not shouldFly then return end
+    if not shouldTween then return end
     if getgenv().BuddhaTransforming then return end
-    if typeof(targetCF) ~= "CFrame" then
-        if typeof(targetCF) == "Vector3" then
-            targetCF = CFrame.new(targetCF)
-        else
-            return
-        end
-    end
+    local char = player.Character; if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
 
-    local char = player.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    local dist = (targetCF.Position - hrp.Position).Magnitude
 
-    _flyTargetCF = targetCF
-    _flySpeed = speed or getgenv().FlySpeed or 160
-    _startFlyLoop()
-    _ensureFlyForces(hrp)
+    if dist < 1 then return end  -- Đã đến nơi, không cần làm gì
+
+    -- Xóa logic tăng tốc khi tới gần đích: luôn dùng đúng speed truyền vào.
+    local effectiveSpeed = speed
+
+    -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
+    -- Cancel + tạo tween mới nếu: chưa có tween, đổi speed,
+    -- hoặc mob đã di chuyển > 3 studs so với đích cũ
+    local needUpdate = (not currentTween)
+        or (currentTweenSpeed ~= effectiveSpeed)
+        or (currentTweenTarget == nil)
+        or ((currentTweenTarget - targetCF.Position).Magnitude > 3)
+
+    if not needUpdate then return end
+
+    if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
+    currentTweenSpeed  = effectiveSpeed
+    currentTweenTarget = targetCF.Position
+    currentTween = TweenService:Create(hrp,
+        TweenInfo.new(dist / effectiveSpeed, Enum.EasingStyle.Linear),
+        {CFrame = targetCF})
+    currentTween:Play()
+    currentTween.Completed:Once(function()
+        currentTween       = nil
+        currentTweenTarget = nil
+    end)
 end
 
 -- Backward-compat aliases (tham số root/obj bỏ qua, hrp lấy nội bộ)
@@ -2343,20 +2224,27 @@ end)
 
 function startFly()
     shouldTween = true
-    shouldFly = true
-    _startFlyLoop()
 end
 
 function stopFly()
     shouldTween = false
-    shouldFly = false
-    _flyTargetCF = nil
-    _stopFlyLoop()
-    local char = player.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function() hum.PlatformStand = false end)
+    if currentTween then
+        pcall(function() currentTween:Cancel() end)
+        currentTween       = nil
+        currentTweenSpeed  = 0
+        currentTweenTarget = nil
     end
+    -- Xoá BodyVelocity ngay lập tức (không chờ vòng lặp)
+    pcall(function()
+        local char = player.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local bc = hrp:FindFirstChild("BodyClip")
+                if bc then bc:Destroy() end
+            end
+        end
+    end)
 end
 
 --// ================= DUAL QUEST PAIRINGS =================
@@ -3144,7 +3032,7 @@ local function TeleportToSubmerged(finalPos)
     local ok, err = pcall(function()
         local npcCF = CFrame.new(-16269.7041, 25.2288494, 1373.65955)
 
-        -- Bước 1: Fly đến NPC bằng vehicle fly
+        -- Bước 1: Fly đến NPC (tele trung gian được xử lý bên trong TweenToPos)
         TweenToPos(npcCF, 350)
 
         -- Đợi đến đủ gần ≤10 stud — không timeout, chỉ check khoảng cách
@@ -3162,9 +3050,9 @@ local function TeleportToSubmerged(finalPos)
 
         if myId ~= _submergedCallId or not getgenv().IsFarming then return end
 
-        -- Bước 2: Dừng fly rồi kích hoạt TravelToSubmergedIsland ngay
-        _flyTargetCF = nil
-        if _flyBV then pcall(function() _flyBV.Velocity = Vector3.zero end) end
+        -- Bước 2: Dừng tween rồi kích hoạt TravelToSubmergedIsland ngay
+        if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
+        currentTweenSpeed = 0
 
         local invoked = false
         pcall(function()
@@ -5551,11 +5439,15 @@ Tabs.FruitRaid:CreateButton({
         if not hrp then return end
 
         local targetCF = bestPad.Pad.CFrame * CFrame.new(0, 5, 0)
+        local dist = (hrp.Position - targetCF.Position).Magnitude
         local speed = getgenv().FlySpeed or 160
 
-        -- Vehicle fly tới pad
-        startFly()
-        _tp(targetCF, speed)
+        -- Fly trực tiếp không phụ thuộc FarmDungeon/shouldTween
+        local tween = TweenService:Create(hrp,
+            TweenInfo.new(dist / speed, Enum.EasingStyle.Linear),
+            {CFrame = targetCF}
+        )
+        tween:Play()
 
         Library:Notify({
             Title = "Success",
@@ -6639,7 +6531,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                 end
 
                 local targetCF = CFrame.new(data.pos + Vector3.new(0, 5, 0))
-                -- TweenToPos dùng vehicle fly (BodyVelocity)
+                -- TweenToPos tween thẳng bằng _tp
                 TweenToPos(targetCF, getgenv().FlySpeed or 160)
 
                 -- Bắt buộc tween tới đích, không timeout
@@ -6713,7 +6605,7 @@ spawn(function()
             pcall(function()
                 for _, v in pairs(ReplicatedStorage.NPCs:GetChildren()) do
                     if v.Name == selectedNPC and v:FindFirstChild("HumanoidRootPart") then
-                        -- TweenToPos dùng vehicle fly (BodyVelocity)
+                        -- TweenToPos tween thẳng bằng _tp
                         TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 160)
                         break
                     end
