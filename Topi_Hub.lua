@@ -5188,7 +5188,8 @@ local function FindDestroy()
 
     local function consider(obj)
         if not isDestroyTarget(obj) then return end
-        local hrp = obj.HumanoidRootPart
+        local hrp = obj:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
         local dist = root and (hrp.Position - root.Position).Magnitude or 0
         if dist < bestDist then
             bestDist = dist
@@ -5197,8 +5198,11 @@ local function FindDestroy()
     end
 
     -- Tìm trong workspace.Enemies
-    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        consider(enemy)
+    local enemies = workspace:FindFirstChild("Enemies")
+    if enemies then
+        for _, enemy in ipairs(enemies:GetChildren()) do
+            consider(enemy)
+        end
     end
 
     -- Fallback: tìm trong workspace (phòng khi spawn ngoài Enemies)
