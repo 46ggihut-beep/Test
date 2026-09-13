@@ -3,7 +3,7 @@ local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOog
 local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Library:CreateWindow({
-    Title = "Topi Hub [ Beta V1.04 ]",
+    Title = "Topi Hub [ Beta V0.83 ]",
     SubTitle = "by wzarii & AI",
     TabWidth = 160,
     Theme = "Dark",
@@ -5545,7 +5545,7 @@ Tabs.FruitRaid:CreateToggle("AutoAttackDungeon", {
                     if mob and mob:FindFirstChild("HumanoidRootPart") and root then
                         SelectDungeonWeapon()
                         AttackEnemy(mob)
-                        TweenObject(root, mob.HumanoidRootPart.CFrame * CFrame.new(0, 10, 0), getgenv().FlySpeed)
+                        TweenObject(root, mob.HumanoidRootPart.CFrame * CFrame.new(0, 40, 0), getgenv().FlySpeed)
                     end
                 end)
                 if not ok then
