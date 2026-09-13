@@ -3,7 +3,7 @@ local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOog
 local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Library:CreateWindow({
-    Title = "Topi Hub [ Beta V0.83 ]",
+    Title = "Topi Hub [ Beta 1.05 ]",
     SubTitle = "by wzarii & AI",
     TabWidth = 160,
     Theme = "Dark",
@@ -2222,8 +2222,37 @@ task.spawn(function()
     end
 end)
 
+-- Highlight xanh nhạt hiển thị khi đang fly farm; gỡ ngay khi tắt fly
+local FLY_HIGHLIGHT_NAME = "FlyFarmHighlight"
+
+local function AddFlyHighlight()
+    pcall(function()
+        local char = player.Character
+        if not char then return end
+        if char:FindFirstChild(FLY_HIGHLIGHT_NAME) then return end
+        local hl = Instance.new("Highlight")
+        hl.Name = FLY_HIGHLIGHT_NAME
+        hl.FillColor = Color3.fromRGB(135, 206, 250) -- xanh nhạt (light blue)
+        hl.FillTransparency = 0.5
+        hl.OutlineColor = Color3.fromRGB(173, 216, 230)
+        hl.OutlineTransparency = 0
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent = char
+    end)
+end
+
+local function RemoveFlyHighlight()
+    pcall(function()
+        local char = player.Character
+        if not char then return end
+        local hl = char:FindFirstChild(FLY_HIGHLIGHT_NAME)
+        if hl then hl:Destroy() end
+    end)
+end
+
 function startFly()
     shouldTween = true
+    AddFlyHighlight()
 end
 
 function stopFly()
@@ -2245,6 +2274,7 @@ function stopFly()
             end
         end
     end)
+    RemoveFlyHighlight()
 end
 
 --// ================= DUAL QUEST PAIRINGS =================
@@ -3837,250 +3867,6 @@ function stopPhaBinhFarm()
     currentPointIndex = 1
 end
 
---// ================= DUNGEON FARM =================
-local dungeonFarmConn
-local _dungeonExitReachedTime = 0  -- timestamp khi đến exit, dùng cho delay 1s
-
-local function GetCurrentZone()
-    local root = getRoot()
-    if not root then return nil end
-    
-    local nearestZone = nil
-    local minDistance = math.huge
-    local dungeonFolder = workspace.Map:FindFirstChild("Dungeon")
-    
-    if not dungeonFolder then return nil end
-    
-    for _, zone in ipairs(dungeonFolder:GetChildren()) do
-        local zoneRoot = zone:FindFirstChild("Root")
-        if zoneRoot and zone:FindFirstChild("ExitTeleporter") then
-            local dist = (zoneRoot.Position - root.Position).Magnitude
-            if dist < minDistance then
-                minDistance = dist
-                nearestZone = zone
-            end
-        end
-    end
-    
-    return nearestZone
-end
-
-
--- Tìm Shrine gần player nhất (không lấy theo thứ tự GetChildren)
-local function FindShrine()
-    local root = getRoot()
-    local best, bestDist = nil, math.huge
-
-    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        if enemy.Name == "Shrine"
-            and enemy:FindFirstChild("Humanoid")
-            and enemy:FindFirstChild("HumanoidRootPart")
-            and enemy.Humanoid.Health > 0
-        then
-            local dist = root
-                and (enemy.HumanoidRootPart.Position - root.Position).Magnitude
-                or 0
-            if dist < bestDist then
-                bestDist = dist
-                best = enemy
-            end
-        end
-    end
-
-    return best
-end
-
--- Helper: kiểm tra object có label "Destroy" (BillboardGui hoặc tên trực tiếp)
-local function isDestroyTarget(obj)
-    if not obj:FindFirstChild("Humanoid") then return false end
-    if not obj:FindFirstChild("HumanoidRootPart") then return false end
-    if obj.Humanoid.Health <= 0 then return false end
-
-    -- Cách 1: tên Instance khớp trực tiếp
-    if obj.Name == "Destroy" then return true end
-
-    -- Cách 2: có BillboardGui chứa TextLabel với text "Destroy"
-    for _, child in ipairs(obj:GetDescendants()) do
-        if child:IsA("TextLabel") and string.find(child.Text, "Destroy") then
-            return true
-        end
-    end
-
-    return false
-end
-
--- Tìm mob "Destroy" gần player nhất (ưu tiên cao nhất)
--- Trước đây lấy theo thứ tự GetChildren → xa phá trước, gần phá sau
-local function FindDestroy()
-    local root = getRoot()
-    local best, bestDist = nil, math.huge
-
-    local function consider(obj)
-        if not isDestroyTarget(obj) then return end
-        local hrp = obj.HumanoidRootPart
-        local dist = root and (hrp.Position - root.Position).Magnitude or 0
-        if dist < bestDist then
-            bestDist = dist
-            best = obj
-        end
-    end
-
-    -- Tìm trong workspace.Enemies
-    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        consider(enemy)
-    end
-
-    -- Fallback: tìm trong workspace (phòng khi Destroy spawn ngoài Enemies)
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj.Name ~= "Enemies" then
-            consider(obj)
-        end
-    end
-
-    return best
-end
-
-
-local function GetValidDungeonEnemies()
-    local root = getRoot()
-    local validEnemies = {}
-
-    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        if enemy:FindFirstChild("Humanoid") and enemy:FindFirstChild("HumanoidRootPart") then
-            if enemy.Humanoid.Health > 0 then
-                -- Chỉ bỏ qua Blank Buddy, farm tất cả mob còn lại
-                if enemy.Name == "Blank Buddy" then
-                    continue
-                end
-                table.insert(validEnemies, enemy)
-            end
-        end
-    end
-
-    -- Sắp xếp theo khoảng cách gần nhất trước
-    if root and #validEnemies > 1 then
-        local playerPos = root.Position
-        table.sort(validEnemies, function(a, b)
-            local dA = (a.HumanoidRootPart.Position - playerPos).Magnitude
-            local dB = (b.HumanoidRootPart.Position - playerPos).Magnitude
-            return dA < dB
-        end)
-    end
-
-    return validEnemies
-end
-
-
-
-function startDungeonFarm()
-    if dungeonFarmConn then dungeonFarmConn:Disconnect() end
-    _dungeonExitReachedTime = 0
-    
-    if game.PlaceId ~= DungeonPlaceId then
-        Library:Notify({
-            Title = "Wrong Place",
-            Content = "Dungeon farm chỉ hoạt động trong Dungeon!",
-            Duration = 5
-        })
-        return
-    end
-    
-    dungeonFarmConn = RunService.Heartbeat:Connect(function(dt)
-        if not getgenv().FarmDungeon then return end
-        
-        pcall(function()
-            local root = getRoot()
-            if not root then return end
-            
-            local currentZone = GetCurrentZone()
-            if not currentZone then return end
-            
-            local exitTeleporter = currentZone:FindFirstChild("ExitTeleporter")
-            if not exitTeleporter then return end
-            
-            local exitRoot = exitTeleporter:FindFirstChild("Root")
-            if not exitRoot then return end
-            
-            -- Kiểm tra đã đến exit teleporter (BBG visible)
-            if exitRoot:FindFirstChild("BBG") then
-                TweenObject(root, exitRoot.CFrame, getgenv().FlySpeed)
-                -- Delay 1s tại exit (timestamp-based, tránh coroutine stacking)
-                if _dungeonExitReachedTime == 0 then
-                    _dungeonExitReachedTime = tick()
-                end
-                if tick() - _dungeonExitReachedTime < 1 then
-                    return  -- Đang chờ đủ 1s tại exit
-                end
-                -- Đã đủ 1s → reset timer, teleporter tự xử lý zone transition
-                _dungeonExitReachedTime = 0
-                return
-            else
-                _dungeonExitReachedTime = 0  -- Reset khi BBG biến mất (đã qua zone mới)
-            end
-            
-            -------- PRIORITY 1: DESTROY MObS (Highest) --------
-            local destroy = FindDestroy()
-            if destroy then
-                getgenv().CurrentTargetMob = destroy
-                local targetCF = GetFarmCFrame(destroy)
-                if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
-                selectWeapon()
-                AttackEnemy(destroy)
-                return
-            end
-            
-            -------- PRIORITY 2: SHRINE (High) --------
-            local shrine = FindShrine()
-            if shrine then
-                getgenv().CurrentTargetMob = shrine
-                local targetCF = GetFarmCFrame(shrine)
-                if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
-                selectWeapon()
-                AttackEnemy(shrine)
-                return
-            end
-            
-            -------- PRIORITY 3: FARM ALL MOB (không giới hạn phạm vi) --------
-            local enemies = GetValidDungeonEnemies()
-
-            if #enemies > 0 then
-                -- Fly đến mob gần nhất, attack tất cả mob còn sống
-                local nearest = enemies[1]
-                getgenv().CurrentTargetMob = nearest
-
-                if nearest:FindFirstChild("HumanoidRootPart") then
-                    local targetCF = GetFarmCFrame(nearest)
-                    if targetCF then
-                        TweenObject(root, targetCF, getgenv().FlySpeed)
-                    end
-                end
-
-                selectWeapon()
-                for _, enemy in ipairs(enemies) do
-                    if enemy:FindFirstChild("Humanoid") and enemy.Humanoid.Health > 0 then
-                        AttackEnemy(enemy)
-                    end
-                end
-            else
-                -------- HẾT MOB -> FLY ĐẾN EXIT --------
-                getgenv().CurrentTargetMob = nil
-                if exitRoot then
-                    TweenObject(root, exitRoot.CFrame, getgenv().FlySpeed)
-                end
-            end
-        end)
-    end)
-end
-
-function stopDungeonFarm()
-    if dungeonFarmConn then
-        dungeonFarmConn:Disconnect()
-        dungeonFarmConn = nil
-    end
-    _dungeonExitReachedTime = 0
-    getgenv().CurrentTargetMob = nil
-end
-
 --// ================= MATERIAL FARM LOOP =================
 -- Hết mob -> tween qua pos spawn THẬT của nguyên liệu đang chọn thay vì bay
 -- về 1 pos mặc định cố định (MPos chỉ còn dùng làm fallback khi chưa quét
@@ -5320,140 +5106,425 @@ Tabs.FarmOther:CreateParagraph("ComingSoon", {Title = "Coming Soon", Content = "
 
 --------------------------------------------------------------------
 -- TAB FRUIT & RAID, DUNGEON
+-- Logic dungeon được thay bằng bản port từ script deobfuscated gửi
+-- (Join Dungeon + Dungeon in-run). Auto Pick Card Dungeon đã bị loại bỏ.
+-- Chỉ đổi phần UI/wiring (Settings/SaveSettings/toTarget/ClickM1/equiptool
+-- -> API + helper thật của Topi Hub), KHÔNG đổi thuật toán gốc.
 --------------------------------------------------------------------
-Tabs.FruitRaid:AddSection("Dungeon Farm")
 
-Tabs.FruitRaid:CreateToggle("DungeonFarm", {
-    Title = "Auto Dungeon Farm",
-    Description = "Tu dong farm trong Dungeon (chi hoat dong trong Dungeon PlaceId)",
-    Default = false,
-    Callback = function(v)
-        getgenv().FarmDungeon = v
-        getgenv().Noclip = v
-        getgenv().AutoBusoLoop = v
+--##############################################################################
+-- JOIN DUNGEON
+--##############################################################################
 
-        if v then
-            if game.PlaceId ~= DungeonPlaceId then
-                Library:Notify({
-                    Title = "Sai PlaceId",
-                    Content = "Dungeon farm chi hoat dong trong Dungeon!",
-                    Duration = 5
-                })
-                getgenv().FarmDungeon = false
-                getgenv().Noclip = false
-                getgenv().AutoBusoLoop = false
-                return
-            end
-            getgenv().IsFarming = true
-            startFly()
-            startDungeonFarm()
-            print("Bat Dungeon Farm")
-        else
-            stopDungeonFarm()
-            -- Chi tat IsFarming neu khong co farm nao khac dang chay
-            local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
-                or getgenv().FarmAura or getgenv().FarmEliteHunt
-                or getgenv().AutoMaterial or getgenv().FarmSelectMob
-            if not anyFarmActive then
-                getgenv().IsFarming = false
-                getgenv().Noclip = false
-                getgenv().AutoBusoLoop = false
-                stopFly()
-            end
-            print("Tat Dungeon Farm")
-        end
+Tabs.FruitRaid:AddSection("Join Dungeon")
+
+----------------------------------------------------------------------
+-- DetectNamePlayerDungeon
+----------------------------------------------------------------------
+local function DetectNamePlayerDungeon()
+    local list = {}
+    for _, plr in pairs(Players:GetPlayers()) do
+        table.insert(list, plr.Name)
     end
-})
-
---------------------------------------------------------------------
--- GET BEST PAD FUNCTION - Tìm pad tốt nhất với số player phù hợp
---------------------------------------------------------------------
-function GetBestPad()
-    local bestPad = nil
-    local maxPlayers = -1
-    for i = 1, 3 do
-        local pad = workspace.Map["Simulation Hub"].Pads:FindFirstChild("DUNGEON_TELEPORTER" .. i)
-        if pad then
-            local playersOnPad = pad:GetAttribute("NumPlayersOnPad") or 0
-            if playersOnPad < 4 and playersOnPad > maxPlayers then
-                maxPlayers = playersOnPad
-                bestPad = pad
-            end
-        end
-    end
-    return bestPad
+    return list
 end
 
---------------------------------------------------------------------
--- DUNGEON PAD SETTINGS - Dropdown MaxPlayer + Button Join Pad
---------------------------------------------------------------------
-Tabs.FruitRaid:AddSection("Dungeon Pad Settings")
-
-
-Tabs.FruitRaid:CreateDropdown("MaxPlayerSelect", {
-    Title = "Select Max Players",
-    Description = "Chọn số lượng player tối thiểu trên pad",
-    Values = {"1", "2", "3"},
-    Default = "1",
-    Callback = GuardDropdown(function(value)
-        _G.SelectedMaxPlayers = tonumber(value)
-        print("📊 Selected max players: " .. value)
+local DungeonJoinAccountDD = Tabs.FruitRaid:CreateDropdown("SelectAccountJoinDungeon", {
+    Title = "Select Account Join",
+    Values = (function()
+        local list = DetectNamePlayerDungeon()
+        return (#list > 0) and list or {"(Chưa có player)"}
+    end)(),
+    Multi = false,
+    Default = 1,
+    Callback = GuardDropdown(function(v)
+        getgenv().DungeonJoinAccount = v
     end),
 })
 
 Tabs.FruitRaid:CreateButton({
-    Title = "Join Best Pad",
-    Description = "Fly tới pad có số player >= số đã chọn",
+    Title = "Refresh Player",
+    Description = "Quét lại danh sách người chơi trong server",
     Callback = function()
-        if game.PlaceId ~= DungeonPlaceId then
-            Library:Notify({
-                Title = "Wrong PlaceId",
-                Content = "Chỉ có thể join pad trong Dungeon!",
-                Duration = 3
-            })
+        local values = DetectNamePlayerDungeon()
+        if #values == 0 then values = {"(Chưa có player)"} end
+        pcall(function()
+            if DungeonJoinAccountDD and DungeonJoinAccountDD.SetValues then
+                DungeonJoinAccountDD:SetValues(values)
+            elseif Library.Options and Library.Options.SelectAccountJoinDungeon then
+                Library.Options.SelectAccountJoinDungeon:SetValues(values)
+            end
+        end)
+    end
+})
+
+----------------------------------------------------------------------
+-- DetectPadJoinDungeon
+-- workspace.Map.Pads — trả pad có NumPlayersOnPad == 0 (theo script gốc)
+-- arg preferInitiator: hub gán attribute "Initiator" khi true
+----------------------------------------------------------------------
+local function DetectPadJoinDungeon(preferInitiator)
+    local padsFolder = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Pads")
+    if not padsFolder then return nil end
+
+    for _, pad in pairs(padsFolder:GetChildren()) do
+        if preferInitiator then
+            if pad:GetAttribute("Initiator") then
+                return pad
+            end
+        end
+        local num = pad:GetAttribute("NumPlayersOnPad")
+        if num == 0 then
+            return pad
+        end
+    end
+    return nil
+end
+
+getgenv().DungeonMinPlayerJoin = getgenv().DungeonMinPlayerJoin or 2
+
+Tabs.FruitRaid:CreateSlider("MinPlayerJoinDungeon", {
+    Title = "Min Player Join Dungeon",
+    Description = "Số player tối thiểu trên pad trước khi bấm Start",
+    Default = getgenv().DungeonMinPlayerJoin,
+    Min = 0,
+    Max = 4,
+    Rounding = 0,
+    Callback = function(v)
+        getgenv().DungeonMinPlayerJoin = v
+    end,
+})
+
+-- raw: table.create(3) bắt đầu "Normal"
+local DIFFICULTY_LIST = { "Normal", "Hard", "Nightmare" }
+
+Tabs.FruitRaid:CreateDropdown("SelectDifficultyDungeon", {
+    Title = "Select Difficulty",
+    Values = DIFFICULTY_LIST,
+    Multi = false,
+    Default = 1,
+    Callback = GuardDropdown(function(v)
+        getgenv().DungeonDifficulty = v
+    end),
+})
+
+Tabs.FruitRaid:CreateToggle("AccountStartDungeon", {
+    Title = "Account Start Dungeon",
+    Description = "Account Start Dungeon",
+    Default = false,
+    Callback = function(v)
+        getgenv().DungeonAccountStart = v
+    end
+})
+
+----------------------------------------------------------------------
+-- Auto Join Dungeon (port nguyên logic; chỉ thay Settings/SaveSettings
+-- bằng getgenv(), và toTarget bằng TweenObject/_tp có sẵn của Topi Hub)
+----------------------------------------------------------------------
+Tabs.FruitRaid:CreateToggle("AutoJoinDungeon", {
+    Title = "Auto Join Dungeon",
+    Description = "Auto Join Dungeon",
+    Default = false,
+    Callback = function(enabled)
+        getgenv().AutoJoinDungeon = enabled
+        if not enabled then
+            if type(stopFly) == "function" then stopFly() end
             return
         end
 
-        local bestPad = GetBestPad()
-        if not bestPad then
-            Library:Notify({
-                Title = "No Pad Found",
-                Content = "Không tìm thấy pad phù hợp!",
-                Duration = 3
-            })
-            return
-        end
+        if type(startFly) == "function" then startFly() end
 
-        local numPlayers = bestPad:GetAttribute("NumPlayersOnPad") or 0
-        if numPlayers < (_G.SelectedMaxPlayers or 1) then
-            Library:Notify({
-                Title = "Not Enough Players",
-                Content = "Pad chỉ có " .. numPlayers .. " players, cần " .. (_G.SelectedMaxPlayers or 1),
-                Duration = 3
-            })
-            return
-        end
+        task.spawn(function()
+            while getgenv().AutoJoinDungeon do
+                task.wait()
+                local ok, err = pcall(function()
+                    local dungeonRoot = ReplicatedStorage:FindFirstChild("DungeonReplicationObjects")
+                    if dungeonRoot and dungeonRoot:FindFirstChildWhichIsA("Folder") then
+                        return -- đang trong run
+                    end
 
+                    local pg = player:FindFirstChild("PlayerGui")
+                    if not pg then return end
+
+                    local root = getRoot()
+
+                    if getgenv().DungeonAccountStart then
+                        local menu = pg:FindFirstChild("DungeonQueueSettingsMenu")
+                        if menu and menu.Enabled then
+                            local pad = DetectPadJoinDungeon(true)
+                            local numOnPad = 0
+                            if pad then
+                                numOnPad = pad:GetAttribute("NumPlayersOnPad") or 0
+                            end
+
+                            local difficulty = getgenv().DungeonDifficulty or "Normal"
+                            local remote = menu:FindFirstChild("DungeonSettingsChanged")
+                            if remote then
+                                -- raw: FireServer với {"Difficulty", difficulty}
+                                remote:FireServer("Difficulty", difficulty)
+                            end
+
+                            local minP = getgenv().DungeonMinPlayerJoin or 2
+                            if numOnPad >= minP and remote then
+                                remote:FireServer("Start")
+                                task.wait(2)
+                            end
+                        else
+                            local pad = DetectPadJoinDungeon()
+                            if pad and pad.PrimaryPart and root then
+                                TweenObject(root, pad.PrimaryPart.CFrame * CFrame.new(0, 5, 0), getgenv().FlySpeed)
+                            end
+                        end
+                    else
+                        -- Acc phụ: follow host hoặc tới pad
+                        local menu = pg:FindFirstChild("DungeonQueueSettingsMenu")
+                        if menu and not menu.Enabled then
+                            local hostName = getgenv().DungeonJoinAccount or ""
+                            local host = Players:FindFirstChild(hostName)
+                            if host and host.Character and host.Character:FindFirstChild("HumanoidRootPart") and root then
+                                TweenObject(root, host.Character.HumanoidRootPart.CFrame, getgenv().FlySpeed)
+                            end
+                        end
+                    end
+                end)
+                if not ok then
+                    warn("[Auto Join Dungeon Error]:", err)
+                end
+            end
+        end)
+    end
+})
+
+--##############################################################################
+-- DUNGEON (IN-RUN)
+--##############################################################################
+
+Tabs.FruitRaid:AddSection("Dungeon")
+
+-- raw: Melee + 3 weapon nữa
+local WEAPON_LIST_DUNGEON = { "Melee", "Sword", "Gun", "Blox Fruit" }
+
+Tabs.FruitRaid:CreateDropdown("SelectWeaponDungeon", {
+    Title = "Select Weapon Dungeon",
+    Values = WEAPON_LIST_DUNGEON,
+    Multi = false,
+    Default = 1,
+    Callback = GuardDropdown(function(v)
+        getgenv().DungeonWeapon = v
+    end),
+})
+
+-- Trang bị đúng weapon type đã chọn cho Dungeon, dùng cơ chế Backpack/ToolTip
+-- có sẵn của Topi Hub (thay cho equiptool/NameWeapon không tồn tại ở đây)
+local function EquipDungeonWeapon(weaponType)
+    pcall(function()
         local char = player.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        for _, v in pairs(player.Backpack:GetChildren()) do
+            if v.ToolTip == weaponType then
+                hum:EquipTool(v)
+                return
+            end
+        end
+    end)
+end
 
-        local targetCF = bestPad.Pad.CFrame * CFrame.new(0, 5, 0)
-        local dist = (hrp.Position - targetCF.Position).Magnitude
-        local speed = getgenv().FlySpeed or 160
+----------------------------------------------------------------------
+-- Floor / replication
+----------------------------------------------------------------------
+local function GetInfoDungeon(guid)
+    local root = ReplicatedStorage:FindFirstChild("DungeonReplicationObjects")
+        or ReplicatedStorage:WaitForChild("DungeonReplicationObjects", 3)
+    if not root then return nil end
+    return root:FindFirstChild(guid, true)
+end
 
-        -- Fly trực tiếp không phụ thuộc FarmDungeon/shouldTween
-        local tween = TweenService:Create(hrp,
-            TweenInfo.new(dist / speed, Enum.EasingStyle.Linear),
-            {CFrame = targetCF}
-        )
-        tween:Play()
+local function GetCurrentFloor()
+    local guid = player:GetAttribute("ExplorerGUID")
+    if not guid then return nil end
+    local info = GetInfoDungeon(guid)
+    if info then
+        return info:GetAttribute("FloorId")
+    end
+    return nil
+end
 
-        Library:Notify({
-            Title = "Success",
-            Content = "Flying to pad with " .. numPlayers .. " players!",
-            Duration = 2
-        })
+local function GetHightFloor()
+    local guid = player:GetAttribute("ExplorerGUID")
+    if not guid then return nil end
+    local info = GetInfoDungeon(guid)
+    if info then
+        return info:GetAttribute("CurrentExploredLevel")
+    end
+    return nil
+end
+
+----------------------------------------------------------------------
+-- IsPointInsideModel(model, worldPosition)
+----------------------------------------------------------------------
+local function IsPointInsideModel(model, worldPos)
+    if not (model and model:IsA("Model")) then
+        return false
+    end
+    local cf, size = model:GetBoundingBox()
+    local localPos = cf:PointToObjectSpace(worldPos)
+    local half = size * 0.5
+    return math.abs(localPos.X) <= half.X
+        and math.abs(localPos.Y) <= half.Y
+        and math.abs(localPos.Z) <= half.Z
+end
+
+----------------------------------------------------------------------
+-- IsMobAlive — helper còn thiếu ở script gốc (dep không định nghĩa),
+-- viết theo đúng pattern "Humanoid + HumanoidRootPart + Health > 0" đã
+-- dùng xuyên suốt Topi Hub (GetValidDungeonEnemies/FindShrine cũ, v.v.)
+----------------------------------------------------------------------
+local function IsMobAlive(mob)
+    return mob ~= nil
+        and mob:FindFirstChild("Humanoid") ~= nil
+        and mob:FindFirstChild("HumanoidRootPart") ~= nil
+        and mob.Humanoid.Health > 0
+end
+
+----------------------------------------------------------------------
+-- DetectMobDungeon — closest alive enemy (không Blank Buddy), lọc theo
+-- floor bounds nếu quét được floor model
+----------------------------------------------------------------------
+local function DetectMobDungeon()
+    local myHRP = getRoot()
+    if not myHRP then return nil end
+
+    local floorLevel = GetHightFloor()
+    local floorModel = nil
+    if floorLevel and workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Dungeon") then
+        floorModel = workspace.Map.Dungeon:FindFirstChild(tostring(floorLevel))
+    end
+
+    local best, bestDist = nil, math.huge
+    local enemies = workspace:FindFirstChild("Enemies")
+    if not enemies then return nil end
+
+    for _, mob in pairs(enemies:GetChildren()) do
+        if IsMobAlive(mob) and mob.Name ~= "Blank Buddy" then
+            local hrp = mob:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                if floorModel and not IsPointInsideModel(floorModel, hrp.Position) then
+                    continue
+                end
+                local d = (hrp.Position - myHRP.Position).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    best = mob
+                end
+            end
+        end
+    end
+    return best
+end
+
+----------------------------------------------------------------------
+-- DetectPropHitboxPlaceholder — mob Name == PropHitboxPlaceholder trong floor
+----------------------------------------------------------------------
+local function DetectPropHitboxPlaceholder()
+    local myHRP = getRoot()
+    if not myHRP then return nil end
+
+    local floorLevel = GetHightFloor()
+    if not floorLevel then return nil end
+    local dungeonMap = workspace.Map and workspace.Map:FindFirstChild("Dungeon")
+    if not dungeonMap then return nil end
+    local floorModel = dungeonMap:FindFirstChild(tostring(floorLevel))
+    if not floorModel then return nil end
+
+    local best, bestDist = nil, math.huge
+    for _, mob in ipairs(workspace.Enemies:GetChildren()) do
+        if IsMobAlive(mob) and mob.Name == "PropHitboxPlaceholder" then
+            local hrp = mob:FindFirstChild("HumanoidRootPart")
+            if hrp and IsPointInsideModel(floorModel, hrp.Position) then
+                local d = (hrp.Position - myHRP.Position).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    best = mob
+                end
+            end
+        end
+    end
+    return best
+end
+
+----------------------------------------------------------------------
+-- Auto Attack Dungeon
+-- Next floor qua ExitTeleporter; nhánh đánh mob dùng DetectMobDungeon +
+-- weapon đã chọn. (Auto Pick Card Dungeon đã bị loại bỏ khỏi bản port này.)
+----------------------------------------------------------------------
+Tabs.FruitRaid:CreateToggle("AutoAttackDungeon", {
+    Title = "Auto Attack Dungeon",
+    Description = "Auto Attack Mob and go next Floor",
+    Default = false,
+    Callback = function(enabled)
+        getgenv().AutoAttackDungeon = enabled
+        if not enabled then
+            if type(stopFly) == "function" then stopFly() end
+            return
+        end
+
+        getgenv().IsFarming = true
+        if type(startFly) == "function" then startFly() end
+
+        task.spawn(function()
+            while getgenv().AutoAttackDungeon do
+                task.wait()
+                local ok, err = pcall(function()
+                    local char = player.Character
+                    if not char then return end
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if not hum or hum.Health <= 0 then return end
+
+                    local root = getRoot()
+
+                    local currentFloor = GetCurrentFloor()
+                    local highFloor = GetHightFloor()
+
+                    if currentFloor and highFloor then
+                        local floorIndex = highFloor - 1
+                        local dungeonMap = workspace.Map and workspace.Map:FindFirstChild("Dungeon")
+                        local floorModel = dungeonMap and dungeonMap:FindFirstChild(tostring(floorIndex))
+                        if floorModel then
+                            local exitTp = floorModel:FindFirstChild("ExitTeleporter")
+                            if exitTp and exitTp:FindFirstChild("Root") then
+                                local exitRoot = exitTp.Root
+                                if exitRoot:FindFirstChild("TouchInterest") then
+                                    local dist = player:DistanceFromCharacter(exitRoot.Position)
+                                    if dist <= 15 then
+                                        task.wait(3)
+                                    else
+                                        task.wait(1)
+                                        if root then
+                                            TweenObject(root, exitRoot.CFrame * CFrame.new(0, 5, 0), getgenv().FlySpeed)
+                                        end
+                                    end
+                                    return
+                                end
+                            end
+                        end
+                    end
+
+                    -- Attack (đánh mob gần nhất theo floor)
+                    local mob = DetectMobDungeon() or DetectPropHitboxPlaceholder()
+                    if mob and mob:FindFirstChild("HumanoidRootPart") and root then
+                        local weapon = getgenv().DungeonWeapon or "Melee"
+                        EquipDungeonWeapon(weapon)
+                        AttackEnemy(mob)
+                        TweenObject(root, mob.HumanoidRootPart.CFrame * CFrame.new(0, 10, 0), getgenv().FlySpeed)
+                    end
+                end)
+                if not ok then
+                    warn("[Auto Attack Dungeon Error]:", err)
+                end
+            end
+        end)
     end
 })
 
