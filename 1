@@ -1019,7 +1019,10 @@ local function IsAnyFarmModeActive()
         or getgenv().AutoMaterial
         or getgenv().FarmSelectMob
         or getgenv().FarmDungeon
+        or getgenv().AutoAttackDungeon
         or getgenv().FarmEliteHunt
+        or getgenv().AutoRaid
+        or getgenv().RaidOnly
 end
 
 local function StartAttackLoop()
@@ -1549,6 +1552,8 @@ local function TweenObject(_, cf, speed) _tp(cf, speed) end
 local function GetFarmCFrame(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return nil end
 
+    -- Bring đang kéo mob về look pos → đứng trên look pos (chung mọi mode farm)
+    -- Không bring → đứng trên đầu mob farm
     local basePos
     if getgenv().IsBringingActive and getgenv()._BringLookPos then
         basePos = getgenv()._BringLookPos
@@ -1556,12 +1561,20 @@ local function GetFarmCFrame(mob)
         basePos = mob.HumanoidRootPart.Position
     end
 
-    local settings = getgenv().Settings or {}
-    local weapon = settings["Select Weapon"] or "Melee"
+    -- Weapon offset: dungeon dùng DungeonWeapon, farm thường dùng ChooseWP
+    local weapon
+    if getgenv().AutoAttackDungeon or getgenv().FarmDungeon then
+        weapon = getgenv().DungeonWeapon or _G.ChooseWP or "Melee"
+    else
+        weapon = _G.ChooseWP
+            or (getgenv().Settings and getgenv().Settings["Select Weapon"])
+            or "Melee"
+    end
 
     local yOffset = (weapon == "Blox Fruit") and 20 or 30
     local playerY = basePos.Y + yOffset
 
+    -- World-Y upright (không nhân local CFrame của mob) — giống toàn bộ farm mode khác
     return CFrame.new(Vector3.new(basePos.X, playerY, basePos.Z))
 end
 
@@ -1829,6 +1842,15 @@ function BringEnemy()
     local MobName = getgenv().CurrentBringMob
 
     local farmTarget = getgenv().CurrentTargetMob
+    -- Validate farm target is still alive; clear stale refs so bring recovers next frame
+    if farmTarget then
+        local fHum = farmTarget:FindFirstChildOfClass("Humanoid")
+        local fRoot = GetMobRoot(farmTarget)
+        if not farmTarget.Parent or not fHum or not fRoot or fHum.Health <= 0 then
+            getgenv().CurrentTargetMob = nil
+            farmTarget = nil
+        end
+    end
     if not MobName and farmTarget and farmTarget.Parent then
         local hum = farmTarget:FindFirstChildOfClass("Humanoid")
         local hrp = GetMobRoot(farmTarget)
@@ -2171,6 +2193,7 @@ local function StartGlobalBringMob()
         -- Chỉ cần có một farm mode đang có target là Bring hoạt động.
         -- Không khóa vào FarmMode dropdown.
         local hasFarmTarget = getgenv().CurrentTargetMob ~= nil
+            and getgenv().CurrentTargetMob.Parent ~= nil
         local anyFarm = getgenv().IsFarming
             or getgenv().FarmLevel
             or getgenv().FarmBone
@@ -2180,7 +2203,10 @@ local function StartGlobalBringMob()
             or getgenv().AutoMaterial
             or getgenv().FarmSelectMob
             or getgenv().FarmDungeon
+            or getgenv().AutoAttackDungeon
             or getgenv().FarmEliteHunt
+            or getgenv().AutoRaid
+            or getgenv().RaidOnly
 
         if anyFarm and hasFarmTarget then
             pcall(BringEnemy)
@@ -5475,19 +5501,24 @@ end
 ----------------------------------------------------------------------
 Tabs.FruitRaid:CreateToggle("AutoAttackDungeon", {
     Title = "Auto Attack Dungeon",
-    Description = "Auto Attack Mob and go next Floor",
+    Description = "Auto Attack Mob and go next Floor (Bring Mob nếu toggle Bring Mob bật)",
     Default = false,
     Callback = function(enabled)
         getgenv().AutoAttackDungeon = enabled
+        getgenv().FarmDungeon = enabled
 
         if not enabled then
             -- Chỉ tắt IsFarming/Noclip nếu không còn farm nào khác đang chạy,
             -- rồi mới stopFly() — nếu không, IsFarming vẫn = true khiến vòng
             -- lặp BodyVelocity tự tạo lại BodyClip, tức fly vẫn hoạt động dù
             -- toggle đã tắt (chỉ mất highlight vì stopFly() có gỡ highlight).
+            getgenv().CurrentTargetMob = nil
+            getgenv().CurrentFarmTarget = nil
+            getgenv().IsBringingActive = false
             local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
                 or getgenv().FarmAura or getgenv().FarmEliteHunt
                 or getgenv().AutoMaterial or getgenv().FarmSelectMob
+                or getgenv().AutoRaid or getgenv().RaidOnly
             if not anyFarmActive then
                 getgenv().IsFarming = false
                 getgenv().Noclip = false
@@ -5525,14 +5556,16 @@ Tabs.FruitRaid:CreateToggle("AutoAttackDungeon", {
                             if exitTp and exitTp:FindFirstChild("Root") then
                                 local exitRoot = exitTp.Root
                                 if exitRoot:FindFirstChild("TouchInterest") then
+                                    -- Đang đi next floor: clear target để bring không kéo mob cũ
+                                    getgenv().CurrentTargetMob = nil
+                                    getgenv().CurrentFarmTarget = nil
+                                    getgenv().IsBringingActive = false
                                     local dist = player:DistanceFromCharacter(exitRoot.Position)
                                     if dist <= 15 then
                                         task.wait(3)
                                     else
                                         task.wait(1)
-                                        if root then
-                                            TweenObject(root, exitRoot.CFrame * CFrame.new(0, 5, 0), getgenv().FlySpeed)
-                                        end
+                                        TweenToPos(exitRoot.CFrame * CFrame.new(0, 5, 0), getgenv().FlySpeed)
                                     end
                                     return
                                 end
@@ -5541,17 +5574,33 @@ Tabs.FruitRaid:CreateToggle("AutoAttackDungeon", {
                     end
 
                     -- Attack (đánh mob gần nhất theo floor)
+                    -- Dùng CHUNG vị trí farm với mode khác: GetFarmCFrame
+                    --   • Không bring → đứng trên đầu mob (Y + 30/20)
+                    --   • Có bring → đứng trên look pos (BringEnemy kéo mob về look pos)
+                    -- CurrentTargetMob bắt buộc set để StartGlobalBringMob gọi BringEnemy
                     local mob = DetectMobDungeon() or DetectPropHitboxPlaceholder()
                     if mob and mob:FindFirstChild("HumanoidRootPart") and root then
+                        getgenv().CurrentTargetMob = mob
                         SelectDungeonWeapon()
                         AttackEnemy(mob)
-                        TweenObject(root, mob.HumanoidRootPart.CFrame * CFrame.new(0, 40, 0), getgenv().FlySpeed)
+                        local targetCF = GetFarmCFrame(mob)
+                        if targetCF then
+                            TweenToPos(targetCF, getgenv().FlySpeed)
+                        end
+                    else
+                        getgenv().CurrentTargetMob = nil
+                        getgenv().CurrentFarmTarget = nil
+                        getgenv().IsBringingActive = false
                     end
                 end)
                 if not ok then
                     warn("[Auto Attack Dungeon Error]:", err)
                 end
             end
+            -- Loop ended: clear targets
+            getgenv().CurrentTargetMob = nil
+            getgenv().CurrentFarmTarget = nil
+            getgenv().IsBringingActive = false
         end)
     end
 })
