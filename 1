@@ -3,7 +3,7 @@ local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOog
 local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Library:CreateWindow({
-    Title = "Topi Hub [ Beta 1.05 ]",
+    Title = "Topi Hub [ Beta V0.83 ]",
     SubTitle = "by wzarii & AI",
     TabWidth = 160,
     Theme = "Dark",
@@ -1402,6 +1402,10 @@ end)
 --// ================= HÀM CHỌN VŨ KHÍ =================
 local function selectWeapon()
     pcall(function()
+        -- Logic trang bị vũ khí này chỉ dùng cho các toggle farm THƯỜNG.
+        -- Khi đang Auto Attack Dungeon thì bỏ qua hẳn, tránh việc 2 logic
+        -- trang bị (thường + dungeon) tranh nhau equip khác vũ khí mỗi tick.
+        if getgenv().AutoAttackDungeon then return end
         if not getgenv().IsFarming and not getgenv().FarmPhaBinh then return end
         -- Khong trang bi weapon trong luc Buddha dang transform (dang bam Z)
         if getgenv().BuddhaTransforming then return end
@@ -5314,18 +5318,28 @@ Tabs.FruitRaid:CreateDropdown("SelectWeaponDungeon", {
     end),
 })
 
--- Trang bị đúng weapon type đã chọn cho Dungeon, dùng cơ chế Backpack/ToolTip
--- có sẵn của Topi Hub (thay cho equiptool/NameWeapon không tồn tại ở đây)
-local function EquipDungeonWeapon(weaponType)
+-- Trang bị vũ khí cho Dungeon: dùng LẠI đúng logic loop-equip có sẵn của
+-- selectWeapon() (quét Backpack theo ToolTip, EquipTool mỗi tick), chỉ đổi
+-- biến gọi (getgenv().DungeonWeapon / _G.DungeonSelectWeapon) để không dùng
+-- chung state với selectWeapon() (_G.ChooseWP / _G.SelectWeapon) — tránh
+-- trường hợp farm dungeon + farm thường cùng lúc tranh nhau equip 2 vũ khí.
+local function SelectDungeonWeapon()
     pcall(function()
-        local char = player.Character
-        if not char then return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
+        if not getgenv().AutoAttackDungeon then return end
+        if getgenv().BuddhaTransforming then return end
+
+        local wp = getgenv().DungeonWeapon or "Melee"
         for _, v in pairs(player.Backpack:GetChildren()) do
-            if v.ToolTip == weaponType then
-                hum:EquipTool(v)
-                return
+            if v.ToolTip == wp and player.Backpack:FindFirstChild(tostring(v.Name)) then
+                _G.DungeonSelectWeapon = v.Name
+                break
+            end
+        end
+
+        if _G.DungeonSelectWeapon and player.Character then
+            local weapon = player.Backpack:FindFirstChild(_G.DungeonSelectWeapon)
+            if weapon then
+                player.Character.Humanoid:EquipTool(weapon)
             end
         end
     end)
@@ -5465,12 +5479,27 @@ Tabs.FruitRaid:CreateToggle("AutoAttackDungeon", {
     Default = false,
     Callback = function(enabled)
         getgenv().AutoAttackDungeon = enabled
+
         if not enabled then
+            -- Chỉ tắt IsFarming/Noclip nếu không còn farm nào khác đang chạy,
+            -- rồi mới stopFly() — nếu không, IsFarming vẫn = true khiến vòng
+            -- lặp BodyVelocity tự tạo lại BodyClip, tức fly vẫn hoạt động dù
+            -- toggle đã tắt (chỉ mất highlight vì stopFly() có gỡ highlight).
+            local anyFarmActive = getgenv().FarmLevel or getgenv().FarmBone or getgenv().FarmKata
+                or getgenv().FarmAura or getgenv().FarmEliteHunt
+                or getgenv().AutoMaterial or getgenv().FarmSelectMob
+            if not anyFarmActive then
+                getgenv().IsFarming = false
+                getgenv().Noclip = false
+                getgenv().AutoBusoLoop = false
+            end
             if type(stopFly) == "function" then stopFly() end
             return
         end
 
         getgenv().IsFarming = true
+        getgenv().Noclip = true
+        getgenv().AutoBusoLoop = true
         if type(startFly) == "function" then startFly() end
 
         task.spawn(function()
@@ -5514,8 +5543,7 @@ Tabs.FruitRaid:CreateToggle("AutoAttackDungeon", {
                     -- Attack (đánh mob gần nhất theo floor)
                     local mob = DetectMobDungeon() or DetectPropHitboxPlaceholder()
                     if mob and mob:FindFirstChild("HumanoidRootPart") and root then
-                        local weapon = getgenv().DungeonWeapon or "Melee"
-                        EquipDungeonWeapon(weapon)
+                        SelectDungeonWeapon()
                         AttackEnemy(mob)
                         TweenObject(root, mob.HumanoidRootPart.CFrame * CFrame.new(0, 10, 0), getgenv().FlySpeed)
                     end
