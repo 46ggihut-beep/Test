@@ -5126,7 +5126,8 @@ local function FindShrine()
     local best, bestDist = nil, math.huge
 
     for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        if enemy.Name == "Shrine"
+        local n = string.lower(enemy.Name)
+        if (n == "shrine" or n:find("shrine") or n:find("vent"))
             and enemy:FindFirstChild("Humanoid")
             and enemy:FindFirstChild("HumanoidRootPart")
             and enemy.Humanoid.Health > 0
@@ -5144,27 +5145,43 @@ local function FindShrine()
     return best
 end
 
--- Helper: kiểm tra object có label "Destroy" (BillboardGui hoặc tên trực tiếp)
+-- Helper: kiểm tra object có label cần phá (BillboardGui hoặc tên trực tiếp)
+-- Update sau khi game đổi text "Destroy" → hỗ trợ nhiều text + case-insensitive
 local function isDestroyTarget(obj)
     if not obj:FindFirstChild("Humanoid") then return false end
     if not obj:FindFirstChild("HumanoidRootPart") then return false end
     if obj.Humanoid.Health <= 0 then return false end
 
-    -- Cách 1: tên Instance khớp trực tiếp
-    if obj.Name == "Destroy" then return true end
+    local nameLower = string.lower(obj.Name)
 
-    -- Cách 2: có BillboardGui chứa TextLabel với text "Destroy"
+    -- Cách 1: tên Instance khớp trực tiếp (cũ + mới)
+    if nameLower == "destroy"
+        or nameLower == "shrine"
+        or nameLower == "vent"
+        or nameLower:find("shrine")
+        or nameLower:find("vent")
+        or nameLower:find("destroy")
+    then
+        return true
+    end
+
+    -- Cách 2: có BillboardGui / TextLabel chứa text cần phá (case-insensitive)
+    local keywords = {"destroy", "shrine", "vent", "destroy this", "break", "phá"}
     for _, child in ipairs(obj:GetDescendants()) do
-        if child:IsA("TextLabel") and string.find(child.Text, "Destroy") then
-            return true
+        if child:IsA("TextLabel") or child:IsA("TextButton") then
+            local txt = string.lower(child.Text or "")
+            for _, kw in ipairs(keywords) do
+                if string.find(txt, kw) then
+                    return true
+                end
+            end
         end
     end
 
     return false
 end
 
--- Tìm mob "Destroy" gần player nhất (ưu tiên cao nhất)
--- Trước đây lấy theo thứ tự GetChildren → xa phá trước, gần phá sau
+-- Tìm mob "Destroy"/Shrine/Vent gần player nhất (ưu tiên cao nhất)
 local function FindDestroy()
     local root = getRoot()
     local best, bestDist = nil, math.huge
@@ -5184,16 +5201,15 @@ local function FindDestroy()
         consider(enemy)
     end
 
-    -- Fallback: tìm trong workspace (phòng khi Destroy spawn ngoài Enemies)
+    -- Fallback: tìm trong workspace (phòng khi spawn ngoài Enemies)
     for _, obj in ipairs(workspace:GetChildren()) do
-        if obj.Name ~= "Enemies" then
+        if obj.Name \~= "Enemies" and obj:IsA("Model") then
             consider(obj)
         end
     end
 
     return best
 end
-
 
 local function GetValidDungeonEnemies()
     local root = getRoot()
