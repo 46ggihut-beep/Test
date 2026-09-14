@@ -3988,13 +3988,14 @@ local function GetCurrentZone()
 end
 
 
--- Tìm Shrine gần player nhất (không lấy theo thứ tự GetChildren)
-local function FindShrine()
+-- Tìm PropHitboxPlaceholder gần player nhất (thay thế cho Shrine và Destroy)
+-- Xuất hiện thì ưu tiên farm trước, biến mất (chết) thì thôi
+local function FindPropHitbox()
     local root = getRoot()
     local best, bestDist = nil, math.huge
 
     for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        if enemy.Name == "Shrine"
+        if enemy.Name == "PropHitboxPlaceholder"
             and enemy:FindFirstChild("Humanoid")
             and enemy:FindFirstChild("HumanoidRootPart")
             and enemy.Humanoid.Health > 0
@@ -4012,56 +4013,6 @@ local function FindShrine()
     return best
 end
 
--- Helper: kiểm tra object có label "Destroy" (BillboardGui hoặc tên trực tiếp)
-local function isDestroyTarget(obj)
-    if not obj:FindFirstChild("Humanoid") then return false end
-    if not obj:FindFirstChild("HumanoidRootPart") then return false end
-    if obj.Humanoid.Health <= 0 then return false end
-
-    -- Cách 1: tên Instance khớp trực tiếp
-    if obj.Name == "Destroy" then return true end
-
-    -- Cách 2: có BillboardGui chứa TextLabel với text "Destroy"
-    for _, child in ipairs(obj:GetDescendants()) do
-        if child:IsA("TextLabel") and string.find(child.Text, "Destroy") then
-            return true
-        end
-    end
-
-    return false
-end
-
--- Tìm mob "Destroy" gần player nhất (ưu tiên cao nhất)
--- Trước đây lấy theo thứ tự GetChildren → xa phá trước, gần phá sau
-local function FindDestroy()
-    local root = getRoot()
-    local best, bestDist = nil, math.huge
-
-    local function consider(obj)
-        if not isDestroyTarget(obj) then return end
-        local hrp = obj.HumanoidRootPart
-        local dist = root and (hrp.Position - root.Position).Magnitude or 0
-        if dist < bestDist then
-            bestDist = dist
-            best = obj
-        end
-    end
-
-    -- Tìm trong workspace.Enemies
-    for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
-        consider(enemy)
-    end
-
-    -- Fallback: tìm trong workspace (phòng khi Destroy spawn ngoài Enemies)
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj.Name ~= "Enemies" then
-            consider(obj)
-        end
-    end
-
-    return best
-end
-
 
 local function GetValidDungeonEnemies()
     local root = getRoot()
@@ -4070,8 +4021,8 @@ local function GetValidDungeonEnemies()
     for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
         if enemy:FindFirstChild("Humanoid") and enemy:FindFirstChild("HumanoidRootPart") then
             if enemy.Humanoid.Health > 0 then
-                -- Chỉ bỏ qua Blank Buddy, farm tất cả mob còn lại
-                if enemy.Name == "Blank Buddy" then
+                -- Bỏ qua Blank Buddy, và PropHitboxPlaceholder (xử lý riêng ở priority 1)
+                if enemy.Name == "Blank Buddy" or enemy.Name == "PropHitboxPlaceholder" then
                     continue
                 end
                 table.insert(validEnemies, enemy)
@@ -4140,29 +4091,18 @@ function startDungeonFarm()
                 _dungeonExitReachedTime = 0  -- Reset khi BBG biến mất (đã qua zone mới)
             end
             
-            -------- PRIORITY 1: DESTROY MObS (Highest) --------
-            local destroy = FindDestroy()
-            if destroy then
-                getgenv().CurrentTargetMob = destroy
-                local targetCF = GetFarmCFrame(destroy)
+            -------- PRIORITY 1: PROP HITBOX PLACEHOLDER (Highest, thay thế Shrine/Destroy) --------
+            local propHitbox = FindPropHitbox()
+            if propHitbox then
+                getgenv().CurrentTargetMob = propHitbox
+                local targetCF = GetFarmCFrame(propHitbox)
                 if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
                 selectWeapon()
-                AttackEnemy(destroy)
+                AttackEnemy(propHitbox)
                 return
             end
             
-            -------- PRIORITY 2: SHRINE (High) --------
-            local shrine = FindShrine()
-            if shrine then
-                getgenv().CurrentTargetMob = shrine
-                local targetCF = GetFarmCFrame(shrine)
-                if targetCF then TweenObject(root, targetCF, getgenv().FlySpeed) end
-                selectWeapon()
-                AttackEnemy(shrine)
-                return
-            end
-            
-            -------- PRIORITY 3: FARM ALL MOB (không giới hạn phạm vi) --------
+            -------- PRIORITY 2: FARM ALL MOB (không giới hạn phạm vi) --------
             local enemies = GetValidDungeonEnemies()
 
             if #enemies > 0 then
@@ -4461,9 +4401,21 @@ local function SaveConfig()
     end)
 end
 
+-- Chờ Library.Options có dữ liệu (UI đã mount) thay vì đoán 1 con số cố định.
+-- Bounded: tối đa maxWait giây, nếu quá thời gian vẫn chạy tiếp (fallback).
+local function _WaitOptionsReady(maxWait)
+    local t0 = tick()
+    while tick() - t0 < maxWait do
+        if next(Library.Options) then return true end
+        task.wait(0.1)
+    end
+    return next(Library.Options) ~= nil
+end
+
 local function LoadConfig()
     task.spawn(function()
-        task.wait(0.6) -- Chờ toàn bộ UI mount xong
+        _WaitOptionsReady(3)
+        task.wait(0.3) -- buffer thêm cho các element cuối cùng kịp đăng ký vào Library.Options
 
         local loaded = false
         pcall(function()
@@ -4478,6 +4430,8 @@ local function LoadConfig()
             -- đã làm ở Pass 2 bên dưới — nếu không thì Dropdown/Slider hiển
             -- hiển thị đúng giá trị đã lưu nhưng logic bên trong,
             -- SelectedFarm, FlySpeed, ChooseWP...) vẫn ở giá trị mặc định.
+            -- [FIX 2] Gọi TUẦN TỰ (không task.spawn cả loạt cùng lúc) để
+            -- tránh nhiều callback cùng ghi đè 1 global cùng lúc.
             for id, value in pairs(data) do
                 local opt = Library.Options[id]
                 if opt and opt.Type ~= "Toggle" then
@@ -4489,20 +4443,31 @@ local function LoadConfig()
                         opt:SetValue(resolvedValue)   -- cập nhật visual
                     end)
                     if _OptionCBs[id] then
-                        task.spawn(_OptionCBs[id], resolvedValue)  -- kích hoạt logic
+                        local ok, err = pcall(_OptionCBs[id], resolvedValue)  -- kích hoạt logic
+                        if not ok then warn("[LoadConfig] Lỗi callback '" .. tostring(id) .. "': " .. tostring(err)) end
                     end
+                    task.wait(0.05) -- tránh dồn callback cùng 1 frame
                 end
             end
 
             -- Chờ đủ lâu để mọi callback Dropdown/Slider ở Pass 1 chạy xong
             -- (kể cả GuardDropdown delay ~0.08s trên mobile) trước khi bật
             -- Toggle farm ở Pass 2, tránh AutoFarm đọc phải giá trị mặc định.
-            task.wait(0.35)
+            task.wait(0.4)
 
             -- ── PASS 2: Load Toggle ─────────────────────────────────────────
             -- SetValue() chỉ cập nhật visual, KHÔNG fire Callback.
             -- → Sau SetValue, gọi thủ công _OptionCBs[id](value) để
             --   kích hoạt đúng logic (farm, esp, fly, v.v.)
+            -- [FIX] Trước đây bắn TẤT CẢ callback Toggle cùng lúc bằng
+            -- task.spawn (không đợi nhau) → nếu JSON có từ 2 toggle farm
+            -- true trở lên (VD AutoFarm + DungeonFarm cùng bật do người
+            -- dùng đổi farm mà quên tắt cái cũ), các callback này cùng
+            -- ghi đè global dùng chung (IsFarming/Noclip/AutoBusoLoop...)
+            -- lẫn nhau → toggle hiển thị bật nhưng logic bên trong bị dẫm,
+            -- y hệt triệu chứng "phải tắt bật lại mới farm". Giờ gọi TUẦN
+            -- TỰ, từng toggle một, đợi callback trước chạy xong mới sang
+            -- toggle sau.
             for id, value in pairs(data) do
                 local opt = Library.Options[id]
                 if opt and opt.Type == "Toggle" then
@@ -4510,7 +4475,9 @@ local function LoadConfig()
                         opt:SetValue(value)           -- cập nhật visual
                     end)
                     if value == true and _OptionCBs[id] then
-                        task.spawn(_OptionCBs[id], true)  -- kích hoạt logic
+                        local ok, err = pcall(_OptionCBs[id], true)  -- kích hoạt logic
+                        if not ok then warn("[LoadConfig] Lỗi callback '" .. tostring(id) .. "': " .. tostring(err)) end
+                        task.wait(0.1) -- đợi callback này ổn định global trước khi sang toggle kế
                     end
                 end
             end
@@ -5473,6 +5440,188 @@ Tabs.FruitRaid:CreateToggle("DungeonFarm", {
                 stopFly()
             end
             print("Tat Dungeon Farm")
+        end
+    end
+})
+
+--------------------------------------------------------------------
+-- CARD SETTING - Select Card Priority + Auto Pick Card Dungeon
+--------------------------------------------------------------------
+Tabs.FruitRaid:AddSection("Card Setting")
+
+-- Danh sách đầy đủ card key (thứ tự trong list = thứ tự ưu tiên khi
+-- nhiều loại được chọn cùng lúc xuất hiện trên màn hình chọn card)
+local CardKeys = {
+    "Shadow", "AttackSpeedMultiplier", "SwordZCooldown", "MeleeCCooldown",
+    "Skyjumps", "GunXCooldown", "Gun", "RaceEnergy", "MeleeXCooldown",
+    "Fortress", "GunCooldown", "FruitCooldown", "Overflow", "Fruit",
+    "MeleeCooldown", "AllCooldown", "Sword", "SwordXCooldown", "FruitXCooldown",
+    "Armor", "Size", "Defense", "Melee", "FruitTAPCooldown", "FruitVCooldown",
+    "FruitCCooldown", "FruitZCooldown", "GunZCooldown", "RageGain",
+    "ConstructHealth", "Sniper", "Lifesteal", "MeleeZCooldown", "SwordCooldown",
+    "Unbreakable",
+}
+local CardKeyPriorityIndex = {}
+for i, key in ipairs(CardKeys) do
+    CardKeyPriorityIndex[key] = i
+end
+
+-- Bỏ rich text / font markup trên DisplayName hiển thị trên UI card
+local function stripCardFont(text)
+    return (tostring(text or ""):gsub("<.->", ""))
+end
+
+-- Build/cache map DisplayName (UI) -> key thật trong ExplorerBuffs module.
+-- Module này chỉ tồn tại khi đang ở trong Dungeon place, nên phải require
+-- LAZY (lúc cần dùng) thay vì ở top-level, tránh lỗi khi script chạy ở
+-- place chính (không có ReplicatedStorage.DungeonShared).
+local _CardDisplayNameToKey = nil
+local function GetCardDisplayNameToKey()
+    if _CardDisplayNameToKey then return _CardDisplayNameToKey end
+    local ok, result = pcall(function()
+        local shared = ReplicatedStorage:FindFirstChild("DungeonShared")
+        if not shared then return nil end
+        local buffsModule = shared:FindFirstChild("ExplorerBuffs")
+        if not buffsModule then return nil end
+        local ExplorerBuffs = require(buffsModule)
+        local buffsTable = ExplorerBuffs.ExplorerBuffs or ExplorerBuffs
+        local map = {}
+        for key, data in pairs(buffsTable) do
+            if type(data) == "table" and data.DisplayName then
+                map[stripCardFont(data.DisplayName)] = key
+            end
+        end
+        return map
+    end)
+    if ok and result then
+        _CardDisplayNameToKey = result
+        return _CardDisplayNameToKey
+    end
+    return nil
+end
+
+getgenv().SelectCardPriority = {} -- set {key=true,...} các card được ưu tiên
+
+Tabs.FruitRaid:CreateDropdown("SelectCardPriority", {
+    Title = "Select Card Priority",
+    Description = "Chọn các loại card muốn ưu tiên (có thể chọn nhiều, ưu tiên theo đúng thứ tự list).",
+    Values = CardKeys,
+    Multi = true,
+    Default = {},
+    Callback = GuardDropdown(function(v)
+        local map = {}
+        if type(v) == "table" then
+            if #v > 0 then
+                for _, name in ipairs(v) do
+                    map[name] = true
+                end
+            else
+                for name, on in pairs(v) do
+                    if on then map[name] = true end
+                end
+            end
+        elseif type(v) == "string" then
+            map[v] = true
+        end
+        getgenv().SelectCardPriority = map
+    end),
+})
+
+-- Fire nút chọn card (TextButton.Activated) không cần click thật
+local function FireCardButton(btn)
+    if not btn then return end
+    if getconnections then
+        local ok = pcall(function()
+            for _, c in pairs(getconnections(btn.Activated)) do
+                if c.Function then
+                    pcall(c.Function)
+                elseif c.Fire then
+                    pcall(function() c:Fire() end)
+                end
+            end
+        end)
+        if ok then return end
+    end
+    if firesignal then
+        pcall(firesignal, btn.Activated)
+    end
+end
+
+-- Scan UI card đang hiện trên màn hình, chọn theo priority đã lưu trong
+-- dropdown; nếu không có card nào khớp priority thì chọn bừa 1 trong số
+-- card đang hiện.
+function AutoPickDungeonCard()
+    local priority = getgenv().SelectCardPriority or {}
+    local nameMap = GetCardDisplayNameToKey()
+    if not nameMap then return false end
+
+    local bestIndex, bestButton = math.huge, nil
+    local randomPool = {}
+
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return false end
+
+    for _, inst in ipairs(playerGui:GetDescendants()) do
+        local display = inst:FindFirstChild("DisplayName", true)
+        local desc    = inst:FindFirstChild("BuffDescription", true)
+        local btn     = inst:FindFirstChildWhichIsA("TextButton", true)
+
+        if display and desc and btn and display:IsA("TextLabel") then
+            local name = stripCardFont(display.Text)
+            local key = nameMap[name]
+
+            if key then
+                table.insert(randomPool, btn)
+                if priority[key] then
+                    local idx = CardKeyPriorityIndex[key] or math.huge
+                    if idx < bestIndex then
+                        bestIndex = idx
+                        bestButton = btn
+                    end
+                end
+            end
+        end
+    end
+
+    -- Ưu tiên theo dropdown
+    if bestButton then
+        FireCardButton(bestButton)
+        return true
+    end
+
+    -- Không khớp priority -> chọn bừa 1 trong các card đang hiện
+    if #randomPool > 0 then
+        FireCardButton(randomPool[math.random(1, #randomPool)])
+        return true
+    end
+
+    return false
+end
+getgenv().AutoPickDungeonCard = AutoPickDungeonCard
+
+local _autoPickCardConn
+getgenv().AutoPickCard = false
+
+Tabs.FruitRaid:CreateToggle("AutoPickCard", {
+    Title = "Auto Pick Card Dungeon",
+    Description = "Tự động chọn card theo Select Card Priority khi màn hình chọn card hiện lên.",
+    Default = false,
+    Callback = function(v)
+        getgenv().AutoPickCard = v
+        if _autoPickCardConn then
+            _autoPickCardConn:Disconnect()
+            _autoPickCardConn = nil
+        end
+        if v then
+            local _acc = 0
+            _autoPickCardConn = RunService.Heartbeat:Connect(function(dt)
+                if not getgenv().AutoPickCard then return end
+                -- Throttle ~5 lần/giây, quét toàn bộ PlayerGui mỗi frame sẽ nặng máy
+                _acc = _acc + dt
+                if _acc < 0.2 then return end
+                _acc = 0
+                pcall(AutoPickDungeonCard)
+            end)
         end
     end
 })
