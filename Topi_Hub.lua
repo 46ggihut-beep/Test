@@ -125,7 +125,7 @@ local function ScanWorldSpawns()
             end
 
             local p  = part.Position
-            local cf = CFrame.new(p.X, p.Y + 25, p.Z)
+            local cf = CFrame.new(p.X, p.Y + 40, p.Z)
 
             local list = getgenv().WorldSpawnData[name]
             if not list then
@@ -391,39 +391,114 @@ local Tabs = {
 }
 
 --------------------------------------------------------------------
--- OPTION CALLBACK REGISTRY
--- Lưu Callback của MỌI element (Toggle / Dropdown / Slider) để LoadConfig
--- có thể gọi thủ công.
--- Lý do: Fluent-Renewed SetValue() chỉ cập nhật visual, KHÔNG fire Callback.
--- [FIX] Trước đây chỉ Toggle được lưu vào registry này (_ToggleCBs), nên khi
--- LoadConfig gọi opt:SetValue() cho Dropdown/Slider, các biến global đứng
--- sau Callback (SelectedFarm, FlySpeed, ChooseWP, v.v.)
--- KHÔNG BAO GIỜ được set lại — dropdown/slider chỉ đổi hình ảnh trên UI chứ
--- không áp dụng giá trị đã lưu. Đây chính là nguyên nhân:
-
---   2) Dropdown farm mode hiển thị đúng lựa chọn đã lưu (Orbit/Star) nhưng
---      script vẫn farm theo Up (mặc định) cho đến khi người dùng chọn lại.
--- Giữ tên biến _ToggleCBs làm alias để không phải sửa các chỗ khác đã dùng.
+-- SETTINGS SAVE SYSTEM (cơ chế giống Topi Beta)
+-- Thay thế toàn bộ hệ _OptionCBs / SaveConfig / LoadConfig kiểu cũ (2-pass
+-- replay + autosave 5s) bằng: 1 bảng Settings duy nhất theo key
+-- "<Tab>_<Id>", GetDefault() tính giá trị mặc định, và lưu file NGAY LẬP
+-- TỨC mỗi khi người dùng đổi 1 giá trị bất kỳ (giống hệt SettingsFile /
+-- Settings / SaveSettings trong topi_beta.txt).
+--
+-- Vì Fluent-Renewed tự fire Callback với giá trị Default lúc tạo element,
+-- chỉ cần nạp Settings TRƯỚC khi tạo UI rồi gán làm Default là logic farm
+-- tự áp dụng đúng giá trị đã lưu — không cần replay thủ công / task.wait
+-- như hệ cũ nữa.
 --------------------------------------------------------------------
-local _OptionCBs = {}
-local _ToggleCBs = _OptionCBs -- alias (tương thích ngược)
+local _SV_FOLDER = "TopiHub"
+local _SV_FILE   = _SV_FOLDER .. "/" .. Players.LocalPlayer.Name .. "-config.json"
+if not isfolder(_SV_FOLDER) then makefolder(_SV_FOLDER) end
 
--- Monkey-patch CreateToggle / CreateDropdown / CreateSlider trên tất cả tab
--- để tự động thu thập callback của MỌI loại element, không chỉ Toggle.
-local function _PatchTab(tab)
+local Settings   = {}   -- Settings["<Tab>_<Id>"] = giá trị đã lưu
+local Elements   = {}   -- Elements[TabKey][Id]   = element (Fluent object)
+local UIRegistry = {}   -- danh sách toàn bộ element đã đăng ký, dùng cho Reset Settings
+
+local function LoadSettings()
+    local ok, result = pcall(function()
+        if not isfile(_SV_FILE) then return {} end
+        local data = HttpService:JSONDecode(readfile(_SV_FILE))
+        return type(data) == "table" and data or {}
+    end)
+    Settings = (ok and result) or {}
+end
+
+local function SaveSettings()
+    pcall(function()
+        writefile(_SV_FILE, HttpService:JSONEncode(Settings))
+    end)
+end
+
+LoadSettings() -- nạp settings TRƯỚC khi bất kỳ element nào được tạo bên dưới
+
+local function GetDefault(Mode, Default)
+    if Default ~= nil then return Default end
+    if Mode == "Toggle" then return false
+    elseif Mode == "Slider" then return 0
+    elseif Mode == "Dropdown" then return nil
+    end
+    return nil
+end
+
+-- Roblox type (Color3, EnumItem, ...) <-> JSON-safe value
+local function _DecodeValue(v)
+    if type(v) == "table" and v.__color then
+        return Color3.new(v.R, v.G, v.B)
+    end
+    return v
+end
+local function _EncodeValue(v)
+    if typeof(v) == "Color3" then
+        return {__color = true, R = v.R, G = v.G, B = v.B}
+    elseif typeof(v) == "EnumItem" then
+        return tostring(v)
+    end
+    return v
+end
+
+-- Monkey-patch CreateToggle / CreateDropdown / CreateSlider trên tất cả tab:
+--   1) Trước khi tạo: nếu Settings đã có giá trị cho key này thì dùng làm
+--      Default (Fluent tự fire Callback với Default lúc tạo).
+--   2) Sau khi tạo: OnChanged sẽ ghi Settings[Key] + lưu file NGAY LẬP TỨC.
+local function _PatchTab(tab, tabKey)
+    Elements[tabKey] = Elements[tabKey] or {}
     for _, methodName in ipairs({"CreateToggle", "CreateDropdown", "CreateSlider"}) do
         local orig = tab[methodName]
         if orig then
+            local Mode = (methodName == "CreateToggle" and "Toggle")
+                      or (methodName == "CreateDropdown" and "Dropdown")
+                      or "Slider"
             tab[methodName] = function(self, id, opts)
-                if opts and type(opts.Callback) == "function" then
-                    _OptionCBs[id] = opts.Callback
+                opts = opts or {}
+                local Key = tabKey .. "_" .. tostring(id)
+
+                if Settings[Key] == nil then
+                    Settings[Key] = GetDefault(Mode, opts.Default)
+                else
+                    local decoded = _DecodeValue(Settings[Key])
+                    if Mode == "Dropdown" and opts.Multi and type(decoded) ~= "table" then
+                        decoded = opts.Default or {}
+                    end
+                    opts.Default = decoded
                 end
-                return orig(self, id, opts)
+
+                local el = orig(self, id, opts)
+                Elements[tabKey][id] = el
+                UIRegistry[#UIRegistry + 1] = {
+                    TabKey = tabKey, Id = id, Mode = Mode, Key = Key,
+                    OriginalDefault = opts.Default,
+                }
+
+                if el and el.OnChanged then
+                    el:OnChanged(function(Value)
+                        Settings[Key] = _EncodeValue(Value)
+                        SaveSettings()
+                    end)
+                end
+
+                return el
             end
         end
     end
 end
-for _, t in pairs(Tabs) do _PatchTab(t) end
+for tabKey, t in pairs(Tabs) do _PatchTab(t, tabKey) end
 
 
 -- Các biến điều khiển chế độ farm
@@ -686,7 +761,7 @@ end
 -- CÁC BIẾN CẤU HÌNH FARM (FARM SETTINGS)
 --------------------------------------------------------------------
 getgenv().BringMob = true           -- Bật tính năng kéo mob lại gần (giúp farm nhanh hơn)
-getgenv().FlySpeed = 160            -- Tốc độ bay (max 160, càng cao bay càng nhanh, nhưng dễ bị phát hiện)
+getgenv().FlySpeed = 220            -- Tốc độ bay (max 220, càng cao bay càng nhanh, nhưng dễ bị phát hiện)
 getgenv().BringMobCount = 2         -- Số mob bring (2-6, gồm cả mob đang farm)
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 getgenv().SmoothMode = false
@@ -1069,10 +1144,10 @@ _G.SelectWeapon = nil
 
 Tabs.Settings:CreateSlider("SpeedTween", {
     Title = "Speed Tween",
-    Description = "Tốc độ bay / tween (50 - 160)",
-    Default = 160,
+    Description = "Tốc độ bay / tween (50 - 220)",
+    Default = 220,
     Min = 50,
-    Max = 160,
+    Max = 220,
     Rounding = 1,
     Callback = function(v)
         getgenv().FlySpeed = v
@@ -1250,6 +1325,38 @@ spawn(function()
         end)
     end
 end)
+
+--------------------------------------------------------------------
+-- RESET SETTINGS (giống Topi Beta)
+--------------------------------------------------------------------
+Tabs.Settings:AddSection("Reset")
+Tabs.Settings:CreateParagraph("ResetSettingsInfo", {
+    Title = "Reset Settings",
+    Content = "Xoá toàn bộ cài đặt đã lưu và đưa mọi Toggle/Dropdown/Slider về mặc định. Cần chạy lại script (execute lại) để áp dụng đầy đủ."
+})
+Tabs.Settings:CreateButton({
+    Title = "Reset to Default",
+    Description = "Xoá file cài đặt đã lưu.",
+    Callback = function()
+        Settings = {}
+        pcall(function() delfile(_SV_FILE) end)
+
+        for _, reg in ipairs(UIRegistry) do
+            pcall(function()
+                local el = Elements[reg.TabKey] and Elements[reg.TabKey][reg.Id]
+                if el and el.SetValue then
+                    el:SetValue(GetDefault(reg.Mode, reg.OriginalDefault))
+                end
+            end)
+        end
+
+        Library:Notify({
+            Title = "Settings Reset",
+            Content = "Đã xoá cài đặt đã lưu. Hãy chạy lại script để áp dụng đầy đủ mặc định.",
+            Duration = 5
+        })
+    end
+})
 
 --// ================= STATUS TAB =================
 Tabs.Status:AddSection("Generals Quests / Items")
@@ -1638,10 +1745,99 @@ local function GetTweenFacingCFrame(atPos, lookAtPos)
     return CFrame.new(atPos)
 end
 
+--------------------------------------------------------------------
+-- TELE TRUNG GIAN (WORLD 1) — mô phỏng cách người chơi thật di chuyển
+-- qua các đảo có cổng tele để tránh bay xuyên map quá xa.
+--
+-- 2 cặp cổng phụ thuộc lẫn nhau:
+--   Sky2 (Y thấp) <-> Sky3 (Y cao)      : cổng lên/xuống bầu trời
+--   Whirlpool     <-> UnderwaterCity    : cổng ra/vào thành phố dưới nước
+--
+-- Quy tắc (theo đúng mô tả): mỗi cổng chỉ "dẫn" tới phía bên kia của
+-- chính nó. Nếu player đã đứng đúng phía của đích thì bay thẳng; nếu
+-- không, phải bay tới cổng ở PHÍA HIỆN TẠI của player trước (game sẽ tự
+-- warp sang phía bên kia khi chạm cổng), rồi mới tiếp tục.
+--------------------------------------------------------------------
+local GATE_SKY2           = Vector3.new(-4198, 1092, -367)
+local GATE_SKY3           = Vector3.new(-6024, 5469, 2214)
+local GATE_WHIRLPOOL      = Vector3.new(4054, -4, -1808)
+local GATE_UNDERWATERCITY = Vector3.new(61170, -4, 1957)
+
+local SKY_HIGH_Y      = 5000  -- Y > ngưỡng này = đang/muốn ở phía Sky3 (trên trời)
+local SKY_LOW_Y       = 2000  -- Y < ngưỡng này = đang/muốn ở phía Sky2 (mặt đất)
+local GATE_NEAR_DIST  = 300   -- Bán kính coi là "gần" cổng Whirlpool/UnderwaterCity
+local GATE_TIMEOUT    = 12    -- giây - nếu kẹt ở 1 cổng quá lâu (cổng không tự kích
+                               -- hoạt được) thì bỏ qua, bay thẳng tới đích thật để
+                               -- tránh đứng yên vĩnh viễn
+
+local function _near(pos, gatePos, radius)
+    return (pos - gatePos).Magnitude <= radius
+end
+
+local _gateStuckPos, _gateStuckSince = nil, 0
+
+-- Trả về vị trí CỔNG cần bay tới trước (nếu phải tele trung gian), hoặc
+-- nil nếu có thể/nên bay thẳng tới đích thật.
+local function ResolveWorld1Gate(targetPos, playerPos)
+    local gate = nil
+
+    -- Cặp Sky2 <-> Sky3 (theo trục Y)
+    if playerPos.Y < SKY_HIGH_Y then
+        if targetPos.Y >= SKY_HIGH_Y then
+            -- Đích ở phía cao (Sky3) nhưng đang ở phía thấp -> không thể bay
+            -- thẳng lên, phải chạm cổng Sky2 (ở phía hiện tại) để warp lên.
+            gate = GATE_SKY2
+        end
+    else
+        if targetPos.Y < SKY_LOW_Y then
+            -- Đích ở phía thấp nhưng đang ở phía cao -> chạm cổng Sky3 để warp xuống.
+            gate = GATE_SKY3
+        end
+    end
+
+    -- Cặp Whirlpool <-> UnderwaterCity (chỉ xét nếu cặp Sky ở trên không match)
+    if not gate then
+        local nearWhirlpool      = _near(playerPos, GATE_WHIRLPOOL, GATE_NEAR_DIST)
+        local nearUnderwaterCity = _near(playerPos, GATE_UNDERWATERCITY, GATE_NEAR_DIST)
+        local targetNearWhirlpool      = _near(targetPos, GATE_WHIRLPOOL, GATE_NEAR_DIST)
+        local targetNearUnderwaterCity = _near(targetPos, GATE_UNDERWATERCITY, GATE_NEAR_DIST)
+
+        if targetNearWhirlpool and not nearWhirlpool then
+            -- Đích gần Whirlpool: chỉ tele trung gian được nếu đang gần
+            -- UnderwaterCity (cổng dẫn tới Whirlpool). Không thì bay thẳng.
+            if nearUnderwaterCity then
+                gate = GATE_UNDERWATERCITY
+            end
+        elseif targetNearUnderwaterCity and not nearUnderwaterCity then
+            -- Đích gần UnderwaterCity: chỉ tele trung gian được nếu đang gần
+            -- Whirlpool (cổng dẫn tới UnderwaterCity).
+            if nearWhirlpool then
+                gate = GATE_WHIRLPOOL
+            end
+        end
+    end
+
+    -- Chống kẹt vĩnh viễn: nếu cứ nhắm mãi 1 cổng quá GATE_TIMEOUT giây mà
+    -- vẫn chưa "qua phía bên kia" (cổng không tự kích hoạt được vì lý do
+    -- gì đó) thì bỏ qua, bay thẳng luôn tới đích thật.
+    if gate then
+        local now = tick()
+        if _gateStuckPos == gate then
+            if now - _gateStuckSince > GATE_TIMEOUT then
+                return nil
+            end
+        else
+            _gateStuckPos, _gateStuckSince = gate, now
+        end
+    else
+        _gateStuckPos = nil
+    end
+
+    return gate
+end
+
 -- Gán vào local _tp đã forward-declare ở trên (không dùng local function
 -- mới — sẽ tạo local shadow và các chỗ gọi sớm vẫn trỏ global nil).
--- Lưu ý: tham số speed cũ không còn được dùng (tốc độ cố định 160), các
--- chỗ gọi cũ truyền thêm speed vẫn không lỗi (Lua bỏ qua tham số dư).
 _tp = function(targetCF, _speed)
     if not shouldTween then return end
     if getgenv().BuddhaTransforming then return end
@@ -1652,12 +1848,22 @@ _tp = function(targetCF, _speed)
     end
     local rootPart = character.HumanoidRootPart
 
+    -- World1: nếu đích cần tele trung gian qua cổng, đổi điểm bay tới
+    -- thành vị trí cổng ở phía hiện tại của player thay vì đích thật.
+    local effectiveCF = targetCF
+    if World1 then
+        local gatePos = ResolveWorld1Gate(targetCF.Position, rootPart.Position)
+        if gatePos then
+            effectiveCF = CFrame.new(gatePos)
+        end
+    end
+
     ----------------------------------------------------------------
     -- [FIX] Luôn hướng mặt player về phía mob đang farm (nếu có) hoặc
     -- về phía điểm đích đang tween tới (nếu không có mob). Xem
     -- GetTweenFacingCFrame ở trên cho trường hợp mob/đích ngay dưới chân.
     ----------------------------------------------------------------
-    local lookAtPos = targetCF.Position
+    local lookAtPos = effectiveCF.Position
     do
         local farmMob = getgenv().CurrentTargetMob or getgenv().CurrentFarmTarget
         if farmMob and farmMob.Parent then
@@ -1669,7 +1875,7 @@ _tp = function(targetCF, _speed)
         end
     end
 
-    local target = GetTweenFacingCFrame(targetCF.Position, lookAtPos)
+    local target = GetTweenFacingCFrame(effectiveCF.Position, lookAtPos)
 
     local distance = (target.Position - rootPart.Position).Magnitude
     if distance < 1 then return end  -- Đã đến nơi, không cần làm gì
@@ -1681,7 +1887,8 @@ _tp = function(targetCF, _speed)
         currentTween = nil
     end
 
-    local tweenInfo = TweenInfo.new(distance / 160, Enum.EasingStyle.Linear)
+    local speed = getgenv().FlySpeed or 220
+    local tweenInfo = TweenInfo.new(distance / speed, Enum.EasingStyle.Linear)
     local tween = TweenService:Create(rootPart, tweenInfo, {
         CFrame = target
     })
@@ -3055,8 +3262,9 @@ end
 local function TweenToPos(targetCF, speed)
     local root = getRoot()
     if not root then return end
-    -- Đã xóa tele trung gian (Portal/Tiki/Reset) — tween thẳng đến đích.
-    -- Tốc độ cố định 160 stud/s bên trong _tp, tham số speed không còn dùng.
+    -- Đã xóa tele trung gian kiểu Portal/Tiki/Reset cũ; World1 giờ tự xử lý
+    -- tele trung gian qua cổng Sky2/Sky3/Whirlpool/UnderwaterCity bên trong _tp.
+    -- Tốc độ đọc từ getgenv().FlySpeed (slider Speed Tween) bên trong _tp.
     _tp(targetCF)
 end
 
@@ -3158,7 +3366,7 @@ local function TeleportToSubmerged(finalPos)
         -- Bước 5 (tuỳ chọn): Fly đến vị trí farm bên trong island
         if finalPos then
             local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
-            TweenToPos(farmCF, getgenv().FlySpeed or 160)
+            TweenToPos(farmCF, getgenv().FlySpeed or 220)
 
             -- Bắt buộc tween tới finalPos, không timeout
             while myId == _submergedCallId and getgenv().IsFarming do
@@ -3167,7 +3375,7 @@ local function TeleportToSubmerged(finalPos)
                 if root and (root.Position - finalPos).Magnitude <= 100 then
                     break
                 end
-                TweenToPos(farmCF, getgenv().FlySpeed or 160)
+                TweenToPos(farmCF, getgenv().FlySpeed or 220)
             end
         end
     end)
@@ -3791,7 +3999,7 @@ function startKataFarm()
                     if _G.ChooseWP == "Blox Fruit" then
                         yOff = 15
                     else
-                        yOff = 25
+                        yOff = 40
                     end
                     local bossPos = Vector3.new(mPos2.X, mPos2.Y + yOff, mPos2.Z)
                     targetCF = CFrame.new(bossPos, bossPos + lFlat2)
@@ -4372,141 +4580,18 @@ InterfaceManager:SetFolder("TopiHub")
 InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 
 --------------------------------------------------------------------
--- HỆ THỐNG SAVE / LOAD RIÊNG (Library.Options)
--- Lưu tất cả Toggle / Dropdown / Slider / Colorpicker vào JSON
--- File: TopiHub/<tên player>-config.json
+-- HỆ THỐNG SAVE / LOAD (đã chuyển sang cơ chế Settings-per-key giống
+-- Topi Beta — xem block "SETTINGS SAVE SYSTEM" ở đầu file. Giá trị đã lưu
+-- được nạp làm Default ngay lúc tạo element nên không cần replay/autosave
+-- thủ công như hệ cũ nữa.
 --------------------------------------------------------------------
-local _SV_FOLDER = "TopiHub"
-local _SV_FILE   = _SV_FOLDER .. "/" .. Players.LocalPlayer.Name .. "-config.json"
-if not isfolder(_SV_FOLDER) then makefolder(_SV_FOLDER) end
-
--- Các key không lưu (theme được InterfaceManager quản lý riêng)
-local _SV_IGNORE = {InterfaceTheme = true, InterfaceTransparency = true, MinimizeKeybind = true}
-
-local function SaveConfig()
-    pcall(function()
-        local data = {}
-        for id, opt in pairs(Library.Options) do
-            if not _SV_IGNORE[id] and opt.Value ~= nil then
-                local v = opt.Value
-                if typeof(v) == "Color3" then
-                    v = {__color = true, R = v.R, G = v.G, B = v.B}
-                elseif typeof(v) == "EnumItem" then
-                    v = tostring(v)
-                end
-                data[id] = v
-            end
-        end
-        writefile(_SV_FILE, HttpService:JSONEncode(data))
-    end)
+if next(Settings) then
+    Library:Notify({
+        Title = "✅ Settings Loaded",
+        Content = "Đã khôi phục cài đặt từ lần chạy trước.",
+        Duration = 4
+    })
 end
-
--- Chờ Library.Options có dữ liệu (UI đã mount) thay vì đoán 1 con số cố định.
--- Bounded: tối đa maxWait giây, nếu quá thời gian vẫn chạy tiếp (fallback).
-local function _WaitOptionsReady(maxWait)
-    local t0 = tick()
-    while tick() - t0 < maxWait do
-        if next(Library.Options) then return true end
-        task.wait(0.1)
-    end
-    return next(Library.Options) ~= nil
-end
-
-local function LoadConfig()
-    task.spawn(function()
-        _WaitOptionsReady(3)
-        task.wait(0.3) -- buffer thêm cho các element cuối cùng kịp đăng ký vào Library.Options
-
-        local loaded = false
-        pcall(function()
-            if not isfile(_SV_FILE) then return end
-            local data = HttpService:JSONDecode(readfile(_SV_FILE))
-
-            -- ── PASS 1: Load Dropdown / Slider / Colorpicker trước ──────────
-            -- Các biến global (SelectedFarm, FlySpeed, ChooseWP...)
-            -- phải được set TRƯỚC khi toggle farm bật và gọi logic farm.
-            -- [FIX] SetValue() chỉ cập nhật visual, KHÔNG fire Callback, nên
-            -- phải gọi thủ công _OptionCBs[id](value) giống hệt cách Toggle
-            -- đã làm ở Pass 2 bên dưới — nếu không thì Dropdown/Slider hiển
-            -- hiển thị đúng giá trị đã lưu nhưng logic bên trong,
-            -- SelectedFarm, FlySpeed, ChooseWP...) vẫn ở giá trị mặc định.
-            -- [FIX 2] Gọi TUẦN TỰ (không task.spawn cả loạt cùng lúc) để
-            -- tránh nhiều callback cùng ghi đè 1 global cùng lúc.
-            for id, value in pairs(data) do
-                local opt = Library.Options[id]
-                if opt and opt.Type ~= "Toggle" then
-                    local resolvedValue = value
-                    pcall(function()
-                        if type(value) == "table" and value.__color then
-                            resolvedValue = Color3.new(value.R, value.G, value.B)
-                        end
-                        opt:SetValue(resolvedValue)   -- cập nhật visual
-                    end)
-                    if _OptionCBs[id] then
-                        local ok, err = pcall(_OptionCBs[id], resolvedValue)  -- kích hoạt logic
-                        if not ok then warn("[LoadConfig] Lỗi callback '" .. tostring(id) .. "': " .. tostring(err)) end
-                    end
-                    task.wait(0.05) -- tránh dồn callback cùng 1 frame
-                end
-            end
-
-            -- Chờ đủ lâu để mọi callback Dropdown/Slider ở Pass 1 chạy xong
-            -- (kể cả GuardDropdown delay ~0.08s trên mobile) trước khi bật
-            -- Toggle farm ở Pass 2, tránh AutoFarm đọc phải giá trị mặc định.
-            task.wait(0.4)
-
-            -- ── PASS 2: Load Toggle ─────────────────────────────────────────
-            -- SetValue() chỉ cập nhật visual, KHÔNG fire Callback.
-            -- → Sau SetValue, gọi thủ công _OptionCBs[id](value) để
-            --   kích hoạt đúng logic (farm, esp, fly, v.v.)
-            -- [FIX] Trước đây bắn TẤT CẢ callback Toggle cùng lúc bằng
-            -- task.spawn (không đợi nhau) → nếu JSON có từ 2 toggle farm
-            -- true trở lên (VD AutoFarm + DungeonFarm cùng bật do người
-            -- dùng đổi farm mà quên tắt cái cũ), các callback này cùng
-            -- ghi đè global dùng chung (IsFarming/Noclip/AutoBusoLoop...)
-            -- lẫn nhau → toggle hiển thị bật nhưng logic bên trong bị dẫm,
-            -- y hệt triệu chứng "phải tắt bật lại mới farm". Giờ gọi TUẦN
-            -- TỰ, từng toggle một, đợi callback trước chạy xong mới sang
-            -- toggle sau.
-            for id, value in pairs(data) do
-                local opt = Library.Options[id]
-                if opt and opt.Type == "Toggle" then
-                    pcall(function()
-                        opt:SetValue(value)           -- cập nhật visual
-                    end)
-                    if value == true and _OptionCBs[id] then
-                        local ok, err = pcall(_OptionCBs[id], true)  -- kích hoạt logic
-                        if not ok then warn("[LoadConfig] Lỗi callback '" .. tostring(id) .. "': " .. tostring(err)) end
-                        task.wait(0.1) -- đợi callback này ổn định global trước khi sang toggle kế
-                    end
-                end
-            end
-
-            loaded = true
-        end)
-
-        if loaded then
-            Library:Notify({
-                Title = "✅ Settings Loaded",
-                Content = "Đã khôi phục cài đặt từ lần chạy trước.",
-                Duration = 4
-            })
-        end
-    end)
-end
-
--- Auto-save mỗi 5 giây
-task.spawn(function()
-    while task.wait(5) do
-        SaveConfig()
-    end
-end)
-
--- Hàm khởi động load (gọi cuối file sau khi tất cả elements đã tạo)
-local function AutoLoad()
-    LoadConfig()
-end
-
 
 Window:SelectTab(1)
 Library:Notify({Title = "Script Loaded", Content = "All Features Ready + Buddha Logic + Respawn + Dungeon Farm + Stats Upgrade", Duration = 5})
@@ -5452,14 +5537,11 @@ Tabs.FruitRaid:AddSection("Card Setting")
 -- Danh sách đầy đủ card key (thứ tự trong list = thứ tự ưu tiên khi
 -- nhiều loại được chọn cùng lúc xuất hiện trên màn hình chọn card)
 local CardKeys = {
-    "Shadow", "AttackSpeedMultiplier", "SwordZCooldown", "MeleeCCooldown",
-    "Skyjumps", "GunXCooldown", "Gun", "RaceEnergy", "MeleeXCooldown",
+    "Shadow", "AttackSpeedMultiplier", "Skyjumps", "Gun", "RaceEnergy",
     "Fortress", "GunCooldown", "FruitCooldown", "Overflow", "Fruit",
-    "MeleeCooldown", "AllCooldown", "Sword", "SwordXCooldown", "FruitXCooldown",
-    "Armor", "Size", "Defense", "Melee", "FruitTAPCooldown", "FruitVCooldown",
-    "FruitCCooldown", "FruitZCooldown", "GunZCooldown", "RageGain",
-    "ConstructHealth", "Sniper", "Lifesteal", "MeleeZCooldown", "SwordCooldown",
-    "Unbreakable",
+    "MeleeCooldown", "AllCooldown", "Sword", "Armor", "Size", "Defense",
+    "Melee", "FruitTAPCooldown", "RageGain", "ConstructHealth", "Sniper",
+    "Lifesteal", "SwordCooldown", "Unbreakable",
 }
 local CardKeyPriorityIndex = {}
 for i, key in ipairs(CardKeys) do
@@ -5701,7 +5783,7 @@ Tabs.FruitRaid:CreateButton({
 
         local targetCF = bestPad.Pad.CFrame * CFrame.new(0, 5, 0)
         local dist = (hrp.Position - targetCF.Position).Magnitude
-        local speed = getgenv().FlySpeed or 160
+        local speed = getgenv().FlySpeed or 220
 
         -- Fly trực tiếp không phụ thuộc FarmDungeon/shouldTween
         local tween = TweenService:Create(hrp,
@@ -6228,7 +6310,7 @@ local function startRaidFarmLoop(isActiveFn, isMultiRaid)
                     )
                 end
 
-                TweenObject(root, multiRaidSafeCF, getgenv().FlySpeed or 160)
+                TweenObject(root, multiRaidSafeCF, getgenv().FlySpeed or 220)
                 getgenv().CurrentTargetMob = nil
                 return
             else
@@ -6249,7 +6331,7 @@ local function startRaidFarmLoop(isActiveFn, isMultiRaid)
                 TweenObject(
                     root,
                     island5.CFrame * CFrame.new(0, 500, 0),
-                    getgenv().FlySpeed or 160
+                    getgenv().FlySpeed or 220
                 )
                 return
             end
@@ -6508,12 +6590,12 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                         if hostHRP and not hostAtWait then
                             -- Host chưa tới chỗ chờ → tween bám theo host
                             local followCF = CFrame.new(hostHRP.Position + Vector3.new(0, 3, 0))
-                            TweenToPos(followCF, getgenv().FlySpeed or 160)
+                            TweenToPos(followCF, getgenv().FlySpeed or 220)
                         else
                             -- Host đã ở vị trí chờ (hoặc không tìm thấy host) → đứng pos trống
                             local emptyPos = FindEmptyWaitPos()
                             if (root.Position - emptyPos).Magnitude > RAID_WAIT_RADIUS then
-                                TweenToPos(CFrame.new(emptyPos + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 160)
+                                TweenToPos(CFrame.new(emptyPos + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 220)
                             end
                         end
                         task.wait(0.35)
@@ -6524,12 +6606,12 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                     do
                         local root = getRoot()
                         if root and (root.Position - RAID_BUY_POS).Magnitude > 15 then
-                            TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 160)
+                            TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 220)
                             repeat
                                 task.wait(0.15)
                                 root = getRoot()
                                 if root and (root.Position - RAID_BUY_POS).Magnitude > 20 then
-                                    TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 160)
+                                    TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 220)
                                 end
                             until not getgenv().AutoRaid
                                 or not root
@@ -6545,7 +6627,7 @@ Tabs.FruitRaid:CreateToggle("AutoRaid", {
                             if AreSelectedMultiPlayersReady() then break end
                             local root = getRoot()
                             if root and (root.Position - RAID_BUY_POS).Magnitude > 25 then
-                                TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 160)
+                                TweenToPos(CFrame.new(RAID_BUY_POS + Vector3.new(0, 3, 0)), getgenv().FlySpeed or 220)
                             end
                             task.wait(0.4)
                         end
@@ -6768,13 +6850,13 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                     if alreadyNear then
                         -- Đã ở trong Submerged Island → fly thẳng đến vị trí farm
                         local farmCF = CFrame.new(finalPos + Vector3.new(0, 3, 0))
-                        TweenToPos(farmCF, getgenv().FlySpeed or 160)
+                        TweenToPos(farmCF, getgenv().FlySpeed or 220)
 
                         while getgenv().TravelToIsland do
                             task.wait(0.15)
                             local r = getRoot()
                             if r and (r.Position - finalPos).Magnitude <= 100 then break end
-                            TweenToPos(farmCF, getgenv().FlySpeed or 160)
+                            TweenToPos(farmCF, getgenv().FlySpeed or 220)
                         end
                     else
                         -- Chưa ở gần: đi qua NPC ngoài mặt nước, kích hoạt
@@ -6796,7 +6878,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
 
                 local targetCF = CFrame.new(data.pos + Vector3.new(0, 5, 0))
                 -- TweenToPos tween thẳng tới đích (đã bỏ tele trung gian)
-                TweenToPos(targetCF, getgenv().FlySpeed or 160)
+                TweenToPos(targetCF, getgenv().FlySpeed or 220)
 
                 -- Bắt buộc tween tới đích, không timeout
                 while getgenv().TravelToIsland do
@@ -6805,7 +6887,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                     if root and (root.Position - data.pos).Magnitude <= 100 then
                         break
                     end
-                    TweenToPos(targetCF, getgenv().FlySpeed or 160)
+                    TweenToPos(targetCF, getgenv().FlySpeed or 220)
                 end
 
                 -- Tắt toggle sau khi đến nơi
@@ -6871,7 +6953,7 @@ spawn(function()
                 local v = npcFolder and npcFolder:FindFirstChild(selectedNPC)
                 if v and v:FindFirstChild("HumanoidRootPart") then
                     -- TweenToPos tween thẳng tới đích (đã bỏ tele trung gian)
-                    TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 160)
+                    TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 220)
                 end
             end)
         end
@@ -7014,7 +7096,7 @@ local function BuyFightingStyle(styleName, styleData, enabled)
             startFly()
 
             local targetCF = CFrame.new(targetPos + Vector3.new(0, 3, 0))
-            TweenToPos(targetCF, getgenv().FlySpeed or 160)
+            TweenToPos(targetCF, getgenv().FlySpeed or 220)
 
             -- Bắt buộc tween tới NPC, không timeout
             repeat
@@ -7026,7 +7108,7 @@ local function BuyFightingStyle(styleName, styleData, enabled)
                 elseif (r.Position - targetPos).Magnitude <= BUY_PROXIMITY then
                     break
                 else
-                    TweenToPos(targetCF, getgenv().FlySpeed or 160)
+                    TweenToPos(targetCF, getgenv().FlySpeed or 220)
                 end
             until not _buyStyleActive[styleName]
 
@@ -7285,11 +7367,9 @@ end
 end
 SetupTravelAndShop()
 
-AutoLoad()
-
 --------------------------------------------------------------------
--- ATTACK MODULE INIT (chạy CUỐI script, sau khi toàn bộ UI + AutoLoad
--- đã xong). Đặt ở đây vì require() các module thật của game
+-- ATTACK MODULE INIT (chạy CUỐI script, sau khi toàn bộ UI đã tạo xong).
+-- Đặt ở đây vì require() các module thật của game
 -- (CombatUtil / Net / Mouse) ngay giữa lúc đang dựng UI từng gây lỗi
 -- "cannot access 'Instance' (lacking capability Plugin)" cho các
 -- toggle được tạo NGAY SAU nó — dời xuống cuối để không còn UI nào
