@@ -3,7 +3,7 @@ local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOog
 local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Library:CreateWindow({
-    Title = "Topi Hub [ Beta V1.13 ]",
+    Title = "Topi Hub [ Beta V0.83 ]",
     SubTitle = "by wzarii & AI",
     TabWidth = 160,
     Theme = "Dark",
@@ -212,1182 +212,18 @@ local DungeonPlaceId = 73902483975735 -- PlaceId của Dungeon
 local TeamSelf = player.Team and player.Team.Name or "Pirates"
 
 --------------------------------------------------------------------
--- ĐẢO TRUNG GIAN (INTERMEDIATE ISLANDS) - Dùng để tele nhanh khi farm xa
+-- FLY STATE
+-- shouldTween  : true khi fly được phép tween di chuyển
+-- currentTween : tween di chuyển đang chạy hiện tại (nil = không có)
 --------------------------------------------------------------------
-local IntermediateIslands = {}
+local shouldTween  = false
+local currentTween = nil
 
-if World1 then
-    IntermediateIslands = {
-        {
-            name = "Sky2",
-            pos = Vector3.new(-4209, 1117, -374),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    -- Y từ Cobalt bị lỗi format (879039...); dùng 872.039 gần portal Sky2
-                    Event:InvokeServer("requestEntrance", Vector3.new(-4209, 1117, -374))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky") end)
-            end
-        },
-        {
-            name = "UnderWater",
-            pos = Vector3.new(61163.85, 5.34, 1819.78),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(61163.8515625, 11.68000793457, 1819.7840576172))
-                end)
-            end
-        },
-        {
-            name = "Whirlpool",
-            pos = Vector3.new(3864, 7, -1927),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(3864, 7, -1927))
-                end)
-            end
-        },
-        {
-            name = "Sky3",
-            pos = Vector3.new(-6021, 5489, 2222),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(-6021, 5489, 2222))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky2") end)
-            end
-        },
-    }
-elseif World2 then
-    IntermediateIslands = {
-        {
-            name = "GhostShipGate",
-            pos = Vector3.new(-6505.30, 150.22, -126.66),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(-6508.5581054688, 150.035003662109, -132.83999633789))
-                end)
-            end
-        },
-        {
-            name = "GhostShip",
-            pos = Vector3.new(923.21, 170.98, 32852.83),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(923.21301269531, 170.9759979248, 32852.83203125))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Ship") end)
-            end
-        },
-        {
-            name = "FlamingoMansion",
-            pos = Vector3.new(-287.53, 350.17, 597.60),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(-286.98596191406, 350.13739013672, 597.89910888672))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Bar") end)
-            end
-        },
-        {
-            name = "FlamingoRoom",
-            pos = Vector3.new(2284.01, 150.19, 908.03),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(2284.9091796875, 50.537796020508, 905.46417236328))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "DressTown") end)
-            end
-        },
-    }
-elseif World3 then
-    IntermediateIslands = {
-        {
-            name = "HouseHydarIsland",
-            pos = Vector3.new(5661.53, 1080.41, -334.96),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function() Event:InvokeServer("GetUnlockables") end)
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(5650.9477539062, 1080.2747802734, -350.3791809082))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Hydra1") end)
-            end
-        },
-        {
-            name = "Mansion",
-            pos = Vector3.new(-12463.81, 450.95, -7550.29),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function() Event:InvokeServer("GetUnlockables") end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "BigMansion") end)
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(-12463.602539062, 400.32705688477, -7566.0830078125))
-                end)
-            end
-        },
-        {
-            name = "CastleOnTheSea",
-            pos = Vector3.new(-5047.54, 380.55, -3159.34),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function() Event:InvokeServer("GetUnlockables") end)
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(-5060.4116210938, 340.50201416016, -3193.2248535156))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "SeaCastle") end)
-            end
-        },
-        {
-            -- Tiki: pos đích trung gian. request đặc biệt xử lý trong doIntermediateTeleport
-            name = "Tiki",
-            pos = Vector3.new(-16813.44, 80.32, 304.87),
-            special = "Tiki",
-            request = function()
-                -- Placeholder: logic multi-step chạy trong doIntermediateTeleport
-            end
-        },
-    }
-else
-    -- Fallback về World 1 nếu không xác định được
-    IntermediateIslands = {
-        {
-            name = "Sky2",
-            pos = Vector3.new(-4607.82, 872.58, -1667.56),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(-4607.8232421875, 872.039099121094, -1667.5570068359))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky") end)
-            end
-        },
-        {
-            name = "UnderWater",
-            pos = Vector3.new(61163.85, 5.34, 1819.78),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(61163.8515625, 11.68000793457, 1819.7840576172))
-                end)
-            end
-        },
-        {
-            name = "Whirlpool",
-            pos = Vector3.new(3864.69, 5.41, -1926.21),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(3864.6879882812, 15.7369995117188, -1926.2139892578))
-                end)
-            end
-        },
-        {
-            name = "Sky3",
-            pos = Vector3.new(-7894.62, 5545.49, -380.2),
-            request = function()
-                local Event = game:GetService("ReplicatedStorage").Remotes.CommF_
-                pcall(function()
-                    Event:InvokeServer("requestEntrance", Vector3.new(-7894.6181640625, 5560.1420898438, -380.29098510742))
-                end)
-                pcall(function() Event:InvokeServer("SetLastSpawnPoint", "Sky2") end)
-            end
-        },
-    }
-end
-
--- Ngưỡng khoảng cách (studs) để kích hoạt tele trung gian
--- Nếu khoảng cách đến đích > ngưỡng này → tele trung gian trước
-local INTERMEDIATE_THRESHOLD = 3000
-
---------------------------------------------------------------------
--- HÀM LẤY ĐẢO TRUNG GIAN TỐI ƯU
--- Tìm đảo trung gian gần đích nhất VÀ gần hơn khoảng cách thẳng a→b
--- Tham số:
---   a: Vector3 vị trí hiện tại của player
---   b: Vector3 vị trí đích cần đến
--- Trả về: island table {name, pos} nếu tìm được, nil nếu không
---------------------------------------------------------------------
-local function getIntermediateTeleport(a, b)
-    -- Khoảng cách XZ thẳng từ player đến đích
-    local directDist = (Vector2.new(a.X, a.Z) - Vector2.new(b.X, b.Z)).Magnitude
-    local best, bestDist = nil, math.huge
-
-    for _, island in ipairs(IntermediateIslands) do
-        -- Nếu tắt Tele Tiki thì bỏ Tiki khỏi danh sách đảo trung gian.
-        -- Tiki vẫn tồn tại như một đảo bình thường để các chức năng khác
-        -- có thể tween/di chuyển tới đó, chỉ không được chọn làm trung gian.
-        local isTiki = island.special == "Tiki" or island.name == "Tiki"
-        if not (isTiki and not getgenv().TeleTiki) then
-            -- Khoảng cách XZ từ đảo trung gian đến đích
-            local d = (Vector2.new(island.pos.X, island.pos.Z) - Vector2.new(b.X, b.Z)).Magnitude
-            if d < bestDist then
-                bestDist = d
-                best = island
-            end
-        end
-    end
-
-    -- Chỉ dùng đảo trung gian nếu nó thực sự gần đích hơn player hiện tại
-    if best and bestDist < directDist then
-        return best
-    end
-    return nil
-end
-
---------------------------------------------------------------------
--- HÀM TÍNH KHOẢNG CÁCH TỪ ĐÍCH TỚI ĐẢO TRUNG GIAN (Portal/Tiki) GẦN NHẤT
--- Dùng để quyết định: đích gần đảo trung gian -> ưu tiên Portal/Tiki,
--- đích xa đảo trung gian -> mới cần Reset Teleport chuỗi hop.
---------------------------------------------------------------------
-local function GetNearestIntermediateDist(targetPos)
-    local best = math.huge
-    for _, island in ipairs(IntermediateIslands) do
-        local isTiki = island.special == "Tiki" or island.name == "Tiki"
-        if not (isTiki and not getgenv().TeleTiki) then
-            local d = (island.pos - targetPos).Magnitude
-            if d < best then best = d end
-        end
-    end
-    return best
-end
-
---------------------------------------------------------------------
--- FLY STATE VARIABLES (chest-style)
--- shouldTween       : true khi fly được phép chạy
--- currentTween      : tween đang chạy hiện tại (nil = đứng yên)
--- currentTweenSpeed : tốc độ của tween hiện tại (để phát hiện đổi speed)
--- currentTweenTarget: vị trí đích của tween hiện tại (để phát hiện mob di chuyển)
---------------------------------------------------------------------
-local shouldTween        = false
-local currentTween       = nil
-local currentTweenSpeed  = 0
-local currentTweenTarget = nil  -- Vector3 đích, dùng để phát hiện mob đổi hướng
-
--- Forward-declare _tp: doIntermediateTeleport / UI callbacks gọi _tp trước khi
--- thân hàm được gán bên dưới. Không khai báo sớm → Lua resolve thành global nil
+-- Forward-declare _tp: một số chỗ trong script gọi _tp trước khi thân hàm
+-- được gán bên dưới. Không khai báo sớm → Lua resolve thành global nil
 -- → lỗi "attempt to call a nil value" tại các dòng _tp(...).
 local _tp
 
---------------------------------------------------------------------
--- HÀM TELEPORT SPAM ĐẾN ĐẢO TRUNG GIAN
--- Spam CFrame trong khoảng thời gian ngắn để đảm bảo đến nơi
--- Tham số:
---   position: Vector3 vị trí đích
---   duration: thời gian spam (giây)
---------------------------------------------------------------------
-local function teleportSpam(position, duration)
-    local char = player.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    local t = tick() + duration
-    while tick() < t do
-        hrp.CFrame = CFrame.new(position + Vector3.new(0, 2, 0))
-        task.wait()
-    end
-end
-
---------------------------------------------------------------------
--- HÀM KIỂM TRA VÀ THỰC HIỆN TELE TRUNG GIAN
--- Gọi hàm này trước mỗi lần tween xa để tiết kiệm thời gian
--- Tham số:
---   targetPos: Vector3 vị trí đích cần đến
--- Trả về: true nếu đã tele trung gian, false nếu không cần
---------------------------------------------------------------------
-local _lastIntermediateTele = 0  -- Cooldown tracker
-local INTERMEDIATE_COOLDOWN = 3  -- Giây giữa các lần tele trung gian
-local _intermediateRunning  = false  -- Guard: ngăn _tp tween trong lúc đang spam TP
-
---------------------------------------------------------------------
--- RESET TELEPORT [BETA]
--- Lấy spawn gần đích, SetLastSpawnPoint rồi reset character.
--- Đây là tầng ưu tiên cao nhất: Reset -> Tiki -> Portal.
---------------------------------------------------------------------
-local ResetTP = getgenv().ResetTeleport or {}
-getgenv().ResetTeleport = ResetTP
-
-local ResetTP_ComF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
-local ResetTP_WorldOrigin = Workspace:WaitForChild("_WorldOrigin", 10)
-local ResetTP_BypassTpLocation = {}
-local ResetTP_PlayerSpawns = {}
-local ResetTP_Connections = {}
-
-local function ResetTP_IsAlive()
-    local char = player.Character
-    if not char then return false end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    return hum and hum.Health > 0
-end
-
-local function ResetTP_GetHRP()
-    local char = player.Character
-    if not char then return nil end
-    return char:FindFirstChild("HumanoidRootPart")
-        or char:FindFirstChild("UpperTorso")
-        or char:FindFirstChild("Torso")
-end
-
-local function ResetTP_Distance(a, b)
-    if typeof(a) == "CFrame" then a = a.Position end
-    if typeof(b) == "CFrame" then b = b.Position end
-    if typeof(a) ~= "Vector3" then return math.huge end
-    if typeof(b) ~= "Vector3" then
-        local hrp = ResetTP_GetHRP()
-        if not hrp then return math.huge end
-        b = hrp.Position
-    end
-    return (a - b).Magnitude
-end
-
-local function ResetTP_ClearConnections()
-    for _, c in ipairs(ResetTP_Connections) do
-        pcall(function() c:Disconnect() end)
-    end
-    table.clear(ResetTP_Connections)
-end
-
-local function ResetTP_LoadBypassTPLocation()
-    ResetTP_ClearConnections()
-    table.clear(ResetTP_PlayerSpawns)
-    table.clear(ResetTP_BypassTpLocation)
-
-    local worldOrigin = ResetTP_WorldOrigin or Workspace:FindFirstChild("_WorldOrigin")
-    local playerSpawns = worldOrigin and worldOrigin:FindFirstChild("PlayerSpawns")
-    local locations = worldOrigin and worldOrigin:FindFirstChild("Locations")
-    if not playerSpawns or not locations then return false end
-
-    local function addSpawn(model)
-        if not model or not model:IsA("Model") then return end
-        local ok, cf = pcall(function() return model:GetModelCFrame() end)
-        if not ok or not cf then return end
-        table.insert(ResetTP_PlayerSpawns, {model.Name, cf})
-    end
-
-    for _, folder in ipairs(playerSpawns:GetChildren()) do
-        for _, model in ipairs(folder:GetChildren()) do
-            addSpawn(model)
-        end
-        table.insert(ResetTP_Connections, folder.ChildAdded:Connect(function(child)
-            task.wait()
-            addSpawn(child)
-        end))
-    end
-
-    local function mapLocation(loc)
-        if not loc:IsA("BasePart") then return end
-        local list = {}
-        ResetTP_BypassTpLocation[loc.Name] = list
-        local mesh = loc:FindFirstChildWhichIsA("SpecialMesh")
-        local scaleX = (mesh and mesh.Scale.X) or 1
-        local radius = (loc.Size.X * scaleX) / 2
-        for _, entry in ipairs(ResetTP_PlayerSpawns) do
-            if (entry[2].Position - loc.Position).Magnitude <= radius then
-                table.insert(list, entry)
-            end
-        end
-    end
-
-    for _, loc in ipairs(locations:GetChildren()) do
-        mapLocation(loc)
-    end
-    table.insert(ResetTP_Connections, locations.ChildAdded:Connect(function(child)
-        task.wait()
-        mapLocation(child)
-    end))
-    return #ResetTP_PlayerSpawns > 0
-end
-
-local function ResetTP_GetTPLocation(pos)
-    if typeof(pos) == "CFrame" then pos = pos.Position end
-    local locations = ResetTP_WorldOrigin and ResetTP_WorldOrigin:FindFirstChild("Locations")
-    if not locations then return nil end
-
-    local bestName, bestDist = nil, math.huge
-    for _, loc in ipairs(locations:GetChildren()) do
-        local list = ResetTP_BypassTpLocation[loc.Name]
-        if list and loc:IsA("BasePart") then
-            local mesh = loc:FindFirstChildWhichIsA("SpecialMesh")
-            local scaleX = (mesh and mesh.Scale.X) or 1
-            local radius = (loc.Size.X * scaleX) / 2
-            if ResetTP_Distance(pos, loc.Position) <= radius then
-                for _, entry in ipairs(list) do
-                    local d = ResetTP_Distance(pos, entry[2].Position)
-                    if d < bestDist then
-                        bestDist = d
-                        bestName = entry[1]
-                    end
-                end
-            end
-        end
-    end
-    return bestName
-end
-
---------------------------------------------------------------------
--- ResetTP_GetDirectSpawnName(targetPos)
--- Tìm spawn point GẦN ĐÍCH NHẤT để SetLastSpawnPoint reset THẲNG 1 lần
--- tới đích (không hop qua đảo trung gian khác). Dùng khi đích đã đủ gần
--- (xem RESETTP_DIRECT_THRESHOLD ở doIntermediateTeleport).
--- Ưu tiên spawn nằm trong đúng Location (bán kính) chứa đích; nếu đích
--- không rơi vào bán kính Location nào đã biết -> fallback quét toàn bộ
--- spawn đã biết, lấy spawn gần đích nhất.
---------------------------------------------------------------------
-local function ResetTP_GetDirectSpawnName(targetPos)
-    if typeof(targetPos) == "CFrame" then targetPos = targetPos.Position end
-
-    local name = ResetTP_GetTPLocation(targetPos)
-    if name then return name end
-
-    if not next(ResetTP_BypassTpLocation) then
-        ResetTP_LoadBypassTPLocation()
-    end
-
-    local bestName, bestDist = nil, math.huge
-    for _, entries in pairs(ResetTP_BypassTpLocation) do
-        for _, entry in ipairs(entries) do
-            local d = ResetTP_Distance(targetPos, entry[2].Position)
-            if d < bestDist then
-                bestDist = d
-                bestName = entry[1]
-            end
-        end
-    end
-    return bestName
-end
-
---------------------------------------------------------------------
--- ResetTP_GetIslandName(pos)
--- Trả về tên Location (đảo) chứa pos đang nằm trong bán kính.
--- Dùng để skip spawnpoint cùng đảo hiện tại khi build hop chain.
---------------------------------------------------------------------
-local function ResetTP_GetIslandName(pos)
-    if typeof(pos) == "CFrame" then pos = pos.Position end
-    if typeof(pos) ~= "Vector3" then return nil end
-
-    local locations = ResetTP_WorldOrigin and ResetTP_WorldOrigin:FindFirstChild("Locations")
-    if not locations then return nil end
-
-    local bestName, bestDist = nil, math.huge
-    for _, loc in ipairs(locations:GetChildren()) do
-        if loc:IsA("BasePart") then
-            local mesh = loc:FindFirstChildWhichIsA("SpecialMesh")
-            local scaleX = (mesh and mesh.Scale.X) or 1
-            local radius = (loc.Size.X * scaleX) / 2
-            local d = ResetTP_Distance(pos, loc.Position)
-            if d <= radius and d < bestDist then
-                bestDist = d
-                bestName = loc.Name
-            end
-        end
-    end
-    return bestName
-end
-
---------------------------------------------------------------------
--- [FIX] RESET TELEPORT — CHUỖI HOP QUA TỪNG ĐẢO
--- Trước đây: chỉ chọn 1 spawn point GẦN ĐÍCH NHẤT rồi reset thẳng 1 lần,
--- bất kể spawn đó xa vị trí hiện tại của player bao nhiêu -> dễ chọn
--- nhầm đảo quá xa / không liền mạch với đường đi thực tế.
---
--- Bây giờ: xây dựng 1 CHUỖI các đảo (spawn point) từ vị trí hiện tại
--- tới đích. Mỗi bước (hop) chỉ chọn đảo GẦN VỊ TRÍ HIỆN TẠI NHẤT trong
--- số các đảo giúp RÚT NGẮN khoảng cách còn lại tới đích (tiến bộ thật
--- sự) — tức vừa "gần đích" (có tiến bộ) vừa "gần player" (đảo kế tiếp
--- hợp lý trên đường đi), không nhảy 1 phát tới đảo xa nhất mà chỉ gần
--- đích. Nếu có nhiều đảo nằm giữa player và đích, sẽ reset lần lượt
--- qua từng đảo một (mỗi lần 1 lần chết/hồi sinh) cho tới khi đủ gần đích.
---------------------------------------------------------------------
-local RESETTP_PROGRESS_MARGIN = 500    -- mỗi hop phải rút ngắn tối thiểu bấy nhiêu stud tới đích
-local RESETTP_MIN_HOP_DIST    = 200    -- hop phải cách vị trí hiện tại tối thiểu bấy nhiêu (tránh hop vô nghĩa)
-local RESETTP_CLOSE_ENOUGH    = 3000   -- đủ gần đích thì dừng chain, để tween/portal lo nốt quãng còn lại
-local RESETTP_MAX_HOPS        = 6      -- giới hạn số lần reset liên tiếp (tránh loop vô hạn)
-local RESETTP_PREFER_PORTAL_DIST = 3000 -- đích gần đảo trung gian trong phạm vi này -> ưu tiên Portal/Tiki, bỏ qua Reset
-local RESETTP_DIRECT_THRESHOLD   = 1500 -- đích cách player dưới ngưỡng này -> SetLastSpawnPoint THẲNG tới đích, không hop qua đảo khác
-
--- Gom toàn bộ spawn point đã biết (loại trùng theo toạ độ)
-local function ResetTP_GetAllSpawns()
-    if not next(ResetTP_BypassTpLocation) then
-        ResetTP_LoadBypassTPLocation()
-    end
-    local allSpawns = {}
-    local seen = {}
-    for _, entries in pairs(ResetTP_BypassTpLocation) do
-        for _, entry in ipairs(entries) do
-            local cf = entry[2]
-            local key = string.format("%.2f|%.2f|%.2f", cf.Position.X, cf.Position.Y, cf.Position.Z)
-            if not seen[key] then
-                seen[key] = true
-                table.insert(allSpawns, cf)
-            end
-        end
-    end
-    return allSpawns
-end
-
---------------------------------------------------------------------
--- ResetTP_FindHopChain(startPos, targetPos)
--- Trả về mảng các {name, cf} theo thứ tự thực hiện (đảo kế tiếp gần
--- player nhất trong số các đảo giúp tiến gần đích hơn); rỗng nếu không
--- tìm được hop nào hợp lệ.
---------------------------------------------------------------------
-local function ResetTP_FindHopChain(startPos, targetPos)
-    local allSpawns = ResetTP_GetAllSpawns()
-    if #allSpawns == 0 then return {} end
-
-    local chain   = {}
-    local current = startPos
-    local used    = {}
-
-    for _ = 1, RESETTP_MAX_HOPS do
-        local distCurToTarget = ResetTP_Distance(current, targetPos)
-        if distCurToTarget <= RESETTP_CLOSE_ENOUGH then break end
-
-        -- Đảo (Location) hiện tại của player / hop trước đó.
-        -- Spawnpoint nằm cùng đảo này sẽ bị SKIP — chỉ reset tới spawn
-        -- không còn trong khu vực đảo hiện tại.
-        local currentIsland = ResetTP_GetIslandName(current)
-
-        -- Trong số spawn CHƯA DÙNG và giúp RÚT NGẮN khoảng cách tới đích,
-        -- chọn spawn GẦN VỊ TRÍ HIỆN TẠI (player / hop trước đó) NHẤT —
-        -- đảo kế tiếp hợp lý trên đường đi, không phải đảo gần đích nhất
-        -- một cách mù quáng. Đồng thời bỏ qua spawn cùng đảo hiện tại.
-        local best, bestDistFromCur = nil, math.huge
-        for i, cf in ipairs(allSpawns) do
-            if not used[i] then
-                local sameIsland = false
-                if currentIsland then
-                    local spawnIsland = ResetTP_GetIslandName(cf.Position)
-                    if spawnIsland and spawnIsland == currentIsland then
-                        sameIsland = true
-                    end
-                end
-
-                if not sameIsland then
-                    local distToTarget = ResetTP_Distance(cf.Position, targetPos)
-                    if (distToTarget + RESETTP_PROGRESS_MARGIN) < distCurToTarget then
-                        local distFromCur = ResetTP_Distance(cf.Position, current)
-                        if distFromCur >= RESETTP_MIN_HOP_DIST and distFromCur < bestDistFromCur then
-                            bestDistFromCur = distFromCur
-                            best = {idx = i, cf = cf}
-                        end
-                    end
-                end
-            end
-        end
-
-        if not best then break end
-
-        local spawnName = ResetTP_GetTPLocation(best.cf.Position)
-        if not spawnName then break end
-
-        used[best.idx] = true
-        table.insert(chain, {name = spawnName, cf = best.cf})
-        current = best.cf.Position
-    end
-
-    return chain
-end
-
--- Giữ tên hàm cũ (tương thích ngược) — tìm hop đầu tiên và set
--- LastSpawnPoint cho hop đó (dùng cho chỗ nào gọi lẻ 1 lần).
-local function ResetTP_TweenBypass(target)
-    local targetPos = typeof(target) == "CFrame" and target.Position or target
-    if typeof(targetPos) ~= "Vector3" then return false end
-
-    local hrp = ResetTP_GetHRP()
-    if not hrp then return false end
-
-    local chain = ResetTP_FindHopChain(hrp.Position, targetPos)
-    if #chain == 0 then return false end
-
-    local hop = chain[1]
-    local char = player.Character
-    local lastSpawnScript = char and char:FindFirstChild("LastSpawnPoint")
-    if lastSpawnScript and lastSpawnScript:IsA("LocalScript") then
-        lastSpawnScript.Disabled = true
-    end
-    local setOk = pcall(function()
-        ResetTP_ComF:InvokeServer("SetLastSpawnPoint", hop.name)
-    end)
-    if lastSpawnScript then
-        lastSpawnScript.Disabled = false
-    end
-    return setOk
-end
-
---------------------------------------------------------------------
--- [RULE] ĐẢO RÙA (TURTLE / MANSION) → CÁC ĐẢO CAKE/PEANUT/...
--- Đang đứng trên đảo Rùa (khu vực pos Mansion) mà đích nằm ở một trong:
---   Peanut Island, Ice Cream Island, CakeLoaf, North Poles, Cacao Island
--- → BẮT BUỘC tween ra biển trước, KHÔNG dùng Reset Tele.
--- Khi đã ra khỏi vùng đảo Rùa (XZ > radius) thì Reset Tele được phép lại.
---------------------------------------------------------------------
-local RESETTP_TURTLE_CENTER = Vector3.new(-12463.81, 374.95, -7550.29)
-local RESETTP_TURTLE_RADIUS = 4200  -- bán kính XZ coi là còn trên đảo Rùa
-
--- Đích bị chặn khi đang ở đảo Rùa (pos trung tâm + bán kính XZ)
-local RESETTP_BLOCKED_FROM_TURTLE = {
-    { name = "Peanut Island",    pos = Vector3.new(-1943.60,  44.90, -10288.01), radius = 2200 },
-    { name = "Ice Cream Island", pos = Vector3.new( -950.00,  59.00, -10907.00), radius = 2200 },
-    { name = "CakeLoaf",         pos = Vector3.new(-2106.07,  45.10, -11908.52), radius = 2500 },
-    { name = "North Poles",      pos = Vector3.new( -986.51,  26.67, -14087.59), radius = 2500 },
-    { name = "Cacao Island",     pos = Vector3.new(  471.13,  42.35, -12212.00), radius = 2200 },
-}
-
-local function ResetTP_XZDist(a, b)
-    if typeof(a) == "CFrame" then a = a.Position end
-    if typeof(b) == "CFrame" then b = b.Position end
-    if typeof(a) ~= "Vector3" or typeof(b) ~= "Vector3" then return math.huge end
-    return (Vector2.new(a.X, a.Z) - Vector2.new(b.X, b.Z)).Magnitude
-end
-
-local function ResetTP_IsOnTurtleIsland(pos)
-    if typeof(pos) == "CFrame" then pos = pos.Position end
-    if typeof(pos) ~= "Vector3" then return false end
-
-    -- Ưu tiên khoảng cách XZ tới trung tâm Mansion
-    if ResetTP_XZDist(pos, RESETTP_TURTLE_CENTER) <= RESETTP_TURTLE_RADIUS then
-        return true
-    end
-
-    -- Fallback: Location name chứa chứa có keyword Turtle/Mansion
-    local islandName = ResetTP_GetIslandName(pos)
-    if islandName then
-        local lower = string.lower(islandName)
-        if string.find(lower, "turtle", 1, true)
-            or string.find(lower, "mansion", 1, true)
-            or string.find(lower, "bigmansion", 1, true) then
-            return true
-        end
-    end
-    return false
-end
-
-local function ResetTP_IsBlockedTurtleTarget(pos)
-    if typeof(pos) == "CFrame" then pos = pos.Position end
-    if typeof(pos) ~= "Vector3" then return false end
-
-    for _, zone in ipairs(RESETTP_BLOCKED_FROM_TURTLE) do
-        if ResetTP_XZDist(pos, zone.pos) <= zone.radius then
-            return true, zone.name
-        end
-    end
-
-    -- Fallback theo Location name
-    local islandName = ResetTP_GetIslandName(pos)
-    if islandName then
-        local lower = string.lower(islandName)
-        if string.find(lower, "peanut", 1, true)
-            or string.find(lower, "ice cream", 1, true)
-            or string.find(lower, "icecream", 1, true)
-            or string.find(lower, "cake", 1, true)
-            or string.find(lower, "cacao", 1, true)
-            or string.find(lower, "cocoa", 1, true)
-            or string.find(lower, "north pole", 1, true)
-            or string.find(lower, "northpole", 1, true) then
-            return true, islandName
-        end
-    end
-    return false, nil
-end
-
--- true = đang trên đảo Rùa VÀ đích thuộc nhóm bị chặn → phải tween ra biển trước
-local function ResetTP_MustTweenOffTurtle(targetPos)
-    local hrp = ResetTP_GetHRP()
-    if not hrp then return false end
-    if not ResetTP_IsOnTurtleIsland(hrp.Position) then
-        return false  -- đã ra khỏi đảo Rùa → cho phép Reset
-    end
-    local blocked = ResetTP_IsBlockedTurtleTarget(targetPos)
-    return blocked == true
-end
-
-local function ResetTP_ShouldUse(targetCF)
-    if not getgenv().ResetTeleportEnabled then return false end
-    if getgenv()._ResetTP_BlockFlag then return false end
-    if getgenv().ReadyToDodge then return false end
-    if not ResetTP_GetHRP() or not ResetTP_IsAlive() then return false end
-
-    local targetPos = typeof(targetCF) == "CFrame" and targetCF.Position or targetCF
-    if typeof(targetPos) ~= "Vector3" then return false end
-
-    -- Rule đảo Rùa → Cake/Peanut/...: bắt buộc tween ra biển, không Reset
-    if ResetTP_MustTweenOffTurtle(targetPos) then
-        return false
-    end
-
-    return ResetTP_Distance(targetPos) >= 1000
-end
-
---------------------------------------------------------------------
--- ResetTP_RunHopChain(chain, isStillActiveFn)
--- Thực hiện lần lượt từng hop trong chain: SetLastSpawnPoint -> giết
--- nhân vật -> chờ hồi sinh -> delay 0.35s -> hop kế tiếp. Dừng giữa
--- chừng nếu farm/tính năng gọi nó đã bị tắt (isStillActiveFn trả false).
--- Trả về true nếu đã chạy hết chain (không bị huỷ giữa chừng).
---------------------------------------------------------------------
-local function ResetTP_RunHopChain(chain, isStillActiveFn)
-    for i, hop in ipairs(chain) do
-        if getgenv()._ResetTP_BlockFlag then return false end
-        if isStillActiveFn and not isStillActiveFn() then return false end
-
-        local char = player.Character
-        local lastSpawnScript = char and char:FindFirstChild("LastSpawnPoint")
-        if lastSpawnScript and lastSpawnScript:IsA("LocalScript") then
-            lastSpawnScript.Disabled = true
-        end
-        local setOk = pcall(function()
-            ResetTP_ComF:InvokeServer("SetLastSpawnPoint", hop.name)
-        end)
-        if lastSpawnScript then
-            lastSpawnScript.Disabled = false
-        end
-        if not setOk then return false end
-
-        print(("🔄 Reset Teleport hop %d/%d -> %s"):format(i, #chain, hop.name))
-
-        local oldCharacter = player.Character
-        local oldHumanoid = oldCharacter and oldCharacter:FindFirstChildOfClass("Humanoid")
-        if oldHumanoid and oldHumanoid.Health > 0 then
-            pcall(function() oldHumanoid.Health = 0 end)
-        end
-
-        local newCharacter = player.CharacterAdded:Wait()
-        local newRoot = newCharacter:WaitForChild("HumanoidRootPart", 12)
-        if newRoot then
-            task.wait(0.35)
-        end
-    end
-    return true
-end
-
-local function ResetTP_Try(targetCF)
-    if not ResetTP_ShouldUse(targetCF) then return false end
-    return ResetTP_TweenBypass(targetCF)
-end
-
-ResetTP.LoadBypassTPLocation = ResetTP_LoadBypassTPLocation
-ResetTP.GetTPLocation = ResetTP_GetTPLocation
-ResetTP.GetDirectSpawnName = ResetTP_GetDirectSpawnName
-ResetTP.GetIslandName = ResetTP_GetIslandName
-ResetTP.IsOnTurtleIsland = ResetTP_IsOnTurtleIsland
-ResetTP.IsBlockedTurtleTarget = ResetTP_IsBlockedTurtleTarget
-ResetTP.MustTweenOffTurtle = ResetTP_MustTweenOffTurtle
-ResetTP.TweenBypass = ResetTP_TweenBypass
-ResetTP.FindHopChain = ResetTP_FindHopChain
-ResetTP.RunHopChain = ResetTP_RunHopChain
-ResetTP.ShouldResetTeleportSmart = ResetTP_ShouldUse
-ResetTP.TryResetTeleport = ResetTP_Try
-ResetTP.BypassTpLocation = ResetTP_BypassTpLocation
-ResetTP.GetDistance = ResetTP_Distance
-ResetTP.getHRP = ResetTP_GetHRP
-
-getgenv().ReadyToDodge = getgenv().ReadyToDodge or false
-getgenv()._ResetTP_BlockFlag = getgenv()._ResetTP_BlockFlag or false
-
-task.spawn(function()
-    for _ = 1, 20 do
-        local wo = Workspace:FindFirstChild("_WorldOrigin")
-        if wo and wo:FindFirstChild("PlayerSpawns") and wo:FindFirstChild("Locations") then
-            ResetTP_WorldOrigin = wo
-            break
-        end
-        task.wait(0.5)
-    end
-    pcall(ResetTP_LoadBypassTPLocation)
-end)
-
---------------------------------------------------------------------
--- HÀM TELE TRUNG GIAN (ASYNC)
--- Sơ đồ:
---   1. Xác định đảo trung gian gần đích nhất
---   2. Dừng tween (cancel currentTween)
---   3. World2/3: gọi island.request() (requestEntrance remote) nếu xa đảo;
---      nếu đã gần đảo (< 500 stud) → bỏ qua tele, để caller tween thẳng.
---      World1 (không có request): spam CFrame như cũ.
---   4. Delay nhỏ sau remote / spam
---   5. Tắt _intermediateRunning → tự gọi _tp tween đến đích thật
--- Nhận targetCF + speed để tự gọi _tp ở bước 5, không để caller gọi.
--- Trả về true nếu đã spawn async (caller KHÔNG gọi _tp thêm),
---         false nếu bỏ qua (caller tự gọi _tp như bình thường).
---------------------------------------------------------------------
-
---------------------------------------------------------------------
--- USE PORTAL FRUIT TELEPORT
--- Khi bật:
---   * bắt buộc fruit = Portal-Portal
---   * tắt toàn bộ tele trung gian + Reset
---   * dùng skill C -> Gateway -> click đúng đảo đích
---------------------------------------------------------------------
-local function PortalFruit_HasPortal()
-    local data = player:FindFirstChild("Data")
-    local df = data and data:FindFirstChild("DevilFruit")
-    return df and df.Value == "Portal-Portal"
-end
-
-local function PortalFruit_GetTool()
-    local char = player.Character
-    if not char then return nil end
-    return char:FindFirstChild("Portal-Portal")
-        or player.Backpack:FindFirstChild("Portal-Portal")
-end
-
-local function PortalFruit_GetIslandName(targetPos)
-    -- Ưu tiên Location thật của game.
-    local name = ResetTP_GetIslandName(targetPos)
-    if name and name ~= "" then
-        return name
-    end
-
-    -- Fallback: tìm Location gần target nhất.
-    local locations = ResetTP_WorldOrigin
-        and ResetTP_WorldOrigin:FindFirstChild("Locations")
-    if locations then
-        local best, bestDist = nil, math.huge
-        for _, loc in ipairs(locations:GetChildren()) do
-            if loc:IsA("BasePart") then
-                local d = (loc.Position - targetPos).Magnitude
-                if d < bestDist then
-                    bestDist = d
-                    best = loc.Name
-                end
-            end
-        end
-        if best and bestDist <= 5000 then
-            return best
-        end
-    end
-    return nil
-end
-
-local function PortalFruit_ClickGatewayButton(islandName)
-    local gui = player:FindFirstChild("PlayerGui")
-    local main = gui and gui:FindFirstChild("Main")
-    local gateway = main and main:FindFirstChild("Gateway")
-    if not gateway then return false end
-
-    local deadline = tick() + 3
-    while not gateway.Visible and tick() < deadline do
-        task.wait(0.1)
-    end
-    if not gateway.Visible then return false end
-
-    local content = gateway:FindFirstChild("MainContent")
-    local scroll = content and content:FindFirstChild("ScrollingFrame")
-    if not scroll then return false end
-
-    -- Gateway thường dùng đúng tên Location. Thử thêm vài dạng tên phổ biến.
-    local candidates = {
-        tostring(islandName),
-        tostring(islandName):gsub(" Island$", ""),
-        tostring(islandName):gsub("^Island ", ""),
-    }
-
-    local btn
-    for _, name in ipairs(candidates) do
-        btn = scroll:FindFirstChild(name)
-        if btn and btn:IsA("GuiButton") then break end
-        btn = nil
-    end
-    if not btn then return false end
-
-    local fired = false
-    pcall(function()
-        for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
-            pcall(function() conn:Fire() end)
-            pcall(function() if conn.Function then conn.Function() end end)
-            fired = true
-        end
-    end)
-
-    return fired
-end
-
-local function PortalFruit_Use(targetCF)
-    if not getgenv().UsePortalFruitTeleport then return false end
-    if typeof(targetCF) ~= "CFrame" then return false end
-    if not PortalFruit_HasPortal() then return false end
-
-    local islandName = PortalFruit_GetIslandName(targetCF.Position)
-    if not islandName then return false end
-
-    local tool = PortalFruit_GetTool()
-    if not tool then return false end
-
-    local char = player.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hum then return false end
-
-    -- Dừng tween hiện tại trước khi mở Gateway.
-    if currentTween then
-        pcall(function() currentTween:Cancel() end)
-        currentTween = nil
-    end
-    currentTweenSpeed = 0
-    currentTweenTarget = nil
-
-    pcall(function() hum:EquipTool(tool) end)
-    task.wait(0.1)
-
-    -- Skill C mở Gateway.
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, "C", false, game)
-        VirtualInputManager:SendKeyEvent(false, "C", false, game)
-    end)
-
-    local ok = PortalFruit_ClickGatewayButton(islandName)
-    if ok then
-        task.wait(1)
-        return true
-    end
-
-    return false
-end
-
-local function doIntermediateTeleport(targetCF, speed)
-    -- Portal Fruit có ưu tiên cao nhất: không dùng Reset/Tiki/Portal trung gian.
-    if getgenv().UsePortalFruitTeleport then
-        local char = player.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local portalDist = hrp and (targetCF.Position - hrp.Position).Magnitude or 0
-
-        -- Theo logic Portal gốc: chỉ dùng Portal khi quãng đường đủ xa.
-        if portalDist >= INTERMEDIATE_THRESHOLD and PortalFruit_HasPortal() then
-            local used = PortalFruit_Use(targetCF)
-            if used then
-                return true
-            end
-        end
-
-        -- Portal fail / quãng đường ngắn -> tween thẳng.
-        -- Không rơi vào Reset/Tiki/Portal trung gian khác.
-        return false
-    end
-
-    -- Đang có một tầng tele trung gian chạy thì giữ nguyên tầng đó.
-    if _intermediateRunning then return true end
-
-    -- Ưu tiên: Reset -> Tiki -> Portal.
-    -- Reset không phụ thuộc TelePorto; chỉ cần Reset Teleport được bật
-    -- và reset thực sự có lợi cho quãng đường hiện tại.
-    if ResetTP_ShouldUse(targetCF) then
-        local allThreeTeleEnabled = getgenv().ResetTeleportEnabled and getgenv().TelePorto and getgenv().TeleTiki
-        local nearestIntermediateDist = GetNearestIntermediateDist(targetCF.Position)
-
-        -- [FIX] Nếu cả 3 toggle tele (Reset + TelePorto + TeleTiki) đều bật
-        -- VÀ đích đang gần 1 đảo trung gian (trong RESETTP_PREFER_PORTAL_DIST)
-        -- -> ưu tiên dùng Portal/Tiki luôn, KHÔNG cần Reset (ít chết/hồi sinh
-        -- hơn, đơn giản hơn). Reset chỉ dùng khi đích XA đảo trung gian hơn
-        -- 1 đảo spawnpoint (nearestIntermediateDist > ngưỡng này).
-        local skipResetForPortal = allThreeTeleEnabled
-            and nearestIntermediateDist <= RESETTP_PREFER_PORTAL_DIST
-
-        local hrp = not skipResetForPortal and ResetTP_GetHRP() or nil
-
-        ----------------------------------------------------------------
-        -- [FIX] Đích cách player dưới RESETTP_DIRECT_THRESHOLD (1500 stud)
-        -- -> SetLastSpawnPoint THẲNG tới spawn gần đích nhất, reset 1 lần
-        -- duy nhất, KHÔNG hop qua các đảo trung gian khác.
-        -- Đích xa hơn 1500 stud -> mới xây chuỗi hop qua từng đảo như cũ.
-        ----------------------------------------------------------------
-        local chain = {}
-        if hrp then
-            local distToTarget = ResetTP_Distance(hrp.Position, targetCF.Position)
-            if distToTarget < RESETTP_DIRECT_THRESHOLD then
-                local directName = ResetTP_GetDirectSpawnName(targetCF.Position)
-                if directName then
-                    chain = { {name = directName, cf = targetCF} }
-                end
-            else
-                chain = ResetTP_FindHopChain(hrp.Position, targetCF.Position)
-            end
-        end
-
-        if #chain > 0 then
-            _intermediateRunning = true
-
-            task.spawn(function()
-                if currentTween then
-                    pcall(function() currentTween:Cancel() end)
-                    currentTween = nil
-                end
-                currentTweenSpeed = 0
-                currentTweenTarget = nil
-
-                local function stillActive()
-                    return getgenv().IsFarming or getgenv().AutoMaterial or getgenv().FarmSelectMob
-                        or getgenv().TravelToIsland or getgenv().TPNpc or getgenv().AutoZou or getgenv().TravelDres
-                end
-
-                ResetTP_RunHopChain(chain, stillActive)
-
-                _intermediateRunning = false
-                if stillActive() then
-                    _tp(targetCF, speed)
-                end
-            end)
-            return true
-        end
-    end
-
-    -- Không Reset được → mới xét Portal/Tiki.
-    if not getgenv().TelePorto then return false end
-
-    -- Guard: đang chạy rồi → bỏ qua (caller không gọi _tp lúc này)
-    if _intermediateRunning then return true end
-
-    -- Cooldown
-    if tick() - _lastIntermediateTele < INTERMEDIATE_COOLDOWN then return false end
-
-    local char = player.Character
-    if not char then return false end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-
-    local targetPos = targetCF.Position
-    local playerPos = hrp.Position
-    local dist = (Vector2.new(playerPos.X, playerPos.Z) - Vector2.new(targetPos.X, targetPos.Z)).Magnitude
-
-    -- Chỉ tele trung gian khi khoảng cách vượt ngưỡng
-    if dist < INTERMEDIATE_THRESHOLD then return false end
-
-    -- Tìm đảo trung gian tối ưu
-    local island = getIntermediateTeleport(playerPos, targetPos)
-    if not island then return false end
-
-    -- Khoảng cách XZ tới đảo trung gian
-    local distToIsland = (Vector2.new(playerPos.X, playerPos.Z) - Vector2.new(island.pos.X, island.pos.Z)).Magnitude
-
-    -- Đã gần điểm trung gian (< 500 stud) → không remote / không spam,
-    -- để caller tween thẳng đến đích (giống logic chest farm)
-    if distToIsland < 300 then
-        return false
-    end
-
-    -- Đặt cờ + cooldown ngay lập tức trước khi spawn
-    _intermediateRunning = true
-    _lastIntermediateTele = tick()
-
-    task.spawn(function()
-        -- Bước 1: Dừng tween đang chạy
-        if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-        currentTweenSpeed  = 0
-        currentTweenTarget = nil
-
-        print("🚀 Tele trung gian → " .. island.name .. " (dist=" .. math.floor(dist) .. ", distIsland=" .. math.floor(distToIsland) .. ")")
-
-        -- ── SPECIAL: Tiki ──────────────────────────────────────────────
-        -- 1) remote tele CastleOnTheSea
-        -- 2) tween/spam tới portal pos (-5097.83, 316.54, -3181.23)
-        -- 3) delay 0.3
-        -- 4) đợi player tới Tiki pos rồi mới tween đích
-        if island.special == "Tiki" or island.name == "Tiki" then
-            local tikiPos   = Vector3.new(-16813.44, 80.32, 304.87)
-            local portalPos = Vector3.new(-5097.83, 316.54, -3181.23)
-
-            -- 1) Remote CastleOnTheSea
-            pcall(function()
-                local Event = ReplicatedStorage.Remotes.CommF_
-                Event:InvokeServer("GetUnlockables")
-                Event:InvokeServer("requestEntrance", Vector3.new(-5060.4116210938, 340.50201416016, -3193.2248535156))
-                Event:InvokeServer("SetLastSpawnPoint", "SeaCastle")
-            end)
-            task.wait(0.2)
-
-            -- 2) Bắt buộc tween tới portal, không timeout
-            do
-                while true do
-                    local c = player.Character
-                    local h = c and c:FindFirstChild("HumanoidRootPart")
-                    if h and (h.Position - portalPos).Magnitude <= 15 then
-                        break
-                    end
-                    if h then
-                        local dist = (h.Position - portalPos).Magnitude
-                        local tween = TweenService:Create(
-                            h,
-                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 160), 0.05), Enum.EasingStyle.Linear),
-                            {CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 0))}
-                        )
-                        tween:Play()
-                        tween.Completed:Wait()
-                    else
-                        task.wait()
-                    end
-                end
-            end
-
-            -- 3) Delay 0.3
-            task.wait(0.3)
-
-            -- 4) Bắt buộc tween tới Tiki, không timeout
-            do
-                while true do
-                    local c = player.Character
-                    local h = c and c:FindFirstChild("HumanoidRootPart")
-                    if h then
-                        local d = (Vector2.new(h.Position.X, h.Position.Z) - Vector2.new(tikiPos.X, tikiPos.Z)).Magnitude
-                        if d <= 80 then break end
-                        local dist = (h.Position - (tikiPos + Vector3.new(0, 2, 0))).Magnitude
-                        local tween = TweenService:Create(
-                            h,
-                            TweenInfo.new(math.max(dist / (speed or getgenv().FlySpeed or 160), 0.05), Enum.EasingStyle.Linear),
-                            {CFrame = CFrame.new(tikiPos + Vector3.new(0, 2, 0))}
-                        )
-                        tween:Play()
-                        tween.Completed:Wait()
-                    else
-                        task.wait()
-                    end
-                end
-            end
-
-            print("✅ Đã tới Tiki trung gian — tiếp tục tween đích")
-        elseif type(island.request) == "function" then
-            -- World2/3 thường: remote requestEntrance
-            pcall(island.request)
-            task.wait(0.15)
-        else
-            -- World1 / không request: bắt buộc tween tới đảo trung gian, không timeout
-            while true do
-                local c = player.Character
-                local h = c and c:FindFirstChild("HumanoidRootPart")
-                if h and (h.Position - island.pos).Magnitude <= 15 then
-                    break
-                end
-                if h then
-                    local target = CFrame.new(island.pos + Vector3.new(0, 2, 0))
-                    local distNow = (h.Position - target.Position).Magnitude
-                    local tween = TweenService:Create(
-                        h,
-                        TweenInfo.new(math.max(distNow / (speed or getgenv().FlySpeed or 160), 0.05), Enum.EasingStyle.Linear),
-                        {CFrame = target}
-                    )
-                    tween:Play()
-                    tween.Completed:Wait()
-                else
-                    task.wait()
-                end
-            end
-        end
-
-        -- Bước 5: Mở khoá rồi tween thẳng đến đích thật
-        _intermediateRunning = false
-        _tp(targetCF, speed)
-    end)
-
-    return true  -- Đã spawn → caller không gọi _tp thêm
-end
 
 --// ================= TOGGLE BUTTON UI (ĐÃ FIX DRAG) =================
 local screenGui = Instance.new("ScreenGui", game.CoreGui)
@@ -1617,6 +453,134 @@ getgenv().pSats = 10              -- Số điểm cộng mỗi lần (mặc đ�
 local Sec = 0.1                   -- Thời gian delay giữa các lần cộng điểm
 
 --------------------------------------------------------------------
+-- [FIX UI QUEST MỚI] HỖ TRỢ CẢ UI CŨ (Main.Quest) & UI MỚI (TrackedQuestFrame)
+--------------------------------------------------------------------
+-- Sau bản update game, UI quest cũ (PlayerGui.Main.Quest.Container.QuestTitle)
+-- đôi khi không còn cập nhật/hiển thị đúng, và game thêm UI mới
+-- PlayerGui.TrackedQuestFrame.Frame (kèm .header) để hiển thị quest đang theo dõi.
+-- Các hàm dưới đây gộp CẢ 2 nguồn UI để không phụ thuộc vào 1 UI duy nhất,
+-- đồng thời KHÔNG còn phụ thuộc vào Mon/NameMon cứng trong data quest —
+-- tên mob được nhận diện trực tiếp từ UI thật tại thời điểm farm.
+--------------------------------------------------------------------
+local function GetQuestUIParts()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+
+    local main       = playerGui:FindFirstChild("Main")
+    local mainQuest  = main and main:FindFirstChild("Quest")
+    local container  = mainQuest and mainQuest:FindFirstChild("Container")
+    local questReward = container and container:FindFirstChild("QuestReward")
+    local questTitle  = container and container:FindFirstChild("QuestTitle")
+
+    local trackedRoot  = playerGui:FindFirstChild("TrackedQuestFrame")
+    local trackedFrame = trackedRoot and trackedRoot:FindFirstChild("Frame")
+    local trackedHeader = trackedFrame and trackedFrame:FindFirstChild("header")
+
+    return mainQuest, container, questTitle, questReward, trackedFrame, trackedHeader
+end
+getgenv().GetQuestUIParts = GetQuestUIParts
+
+-- Trả về true nếu người chơi ĐANG CÓ QUEST (bất kể UI cũ hay UI mới hiển thị)
+-- Dùng hàm này thay cho việc chỉ check "Main.Quest.Visible" như trước đây,
+-- để không bị "mù" quest khi 1 trong 2 UI thay đổi cấu trúc.
+local function HasActiveQuestUI()
+    local ok, result = pcall(function()
+        local mainQuest, container, questTitle, questReward, trackedFrame, trackedHeader = GetQuestUIParts()
+        if mainQuest and mainQuest.Visible then
+            return true
+        end
+        if trackedFrame and trackedFrame.Visible then
+            return true
+        end
+        return false
+    end)
+    return ok and result or false
+end
+getgenv().HasActiveQuestUI = HasActiveQuestUI
+
+-- Gom mọi text có khả năng chứa tên mob từ toàn bộ UI quest (title, reward,
+-- tracked header...) thành 1 bảng string để đem so khớp tên mob thật.
+local function GetQuestRawText()
+    local texts = {}
+    pcall(function()
+        local mainQuest, container, questTitle, questReward, trackedFrame, trackedHeader = GetQuestUIParts()
+
+        local function collect(obj)
+            if not obj then return end
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                if obj.Text and obj.Text ~= "" then table.insert(texts, obj.Text) end
+            end
+        end
+
+        if questTitle then
+            collect(questTitle)
+            local t = questTitle:FindFirstChild("Title")
+            collect(t)
+        end
+        if questReward then
+            collect(questReward)
+            for _, child in ipairs(questReward:GetDescendants()) do
+                collect(child)
+            end
+        end
+        if trackedHeader then
+            collect(trackedHeader)
+            for _, child in ipairs(trackedHeader:GetDescendants()) do
+                collect(child)
+            end
+        end
+        if trackedFrame then
+            for _, child in ipairs(trackedFrame:GetDescendants()) do
+                collect(child)
+            end
+        end
+    end)
+    return texts
+end
+getgenv().GetQuestRawText = GetQuestRawText
+
+-- Tìm tên mob THẬT (đã biết/đã quét được) xuất hiện trong text quest hiện tại.
+-- candidateNames (tuỳ chọn): danh sách tên mob ưu tiên so khớp (vd BonesTable,
+-- CakePrinceTable). Nếu không truyền, sẽ so khớp với TẤT CẢ mob đang sống trong
+-- workspace.Enemies + toàn bộ tên đã quét được trong WorldSpawnData.
+-- Luôn ưu tiên tên DÀI NHẤT khớp được (vd "Desert Bandit" thay vì chỉ "Bandit")
+-- để tránh nhận nhầm mob khi tên bị trùng lặp một phần.
+local function DetectQuestMobName(candidateNames)
+    local texts = GetQuestRawText()
+    if #texts == 0 then return nil end
+    local combined = table.concat(texts, " | ")
+
+    local pool = candidateNames
+    if not pool or #pool == 0 then
+        local seen = {}
+        pool = {}
+        pcall(function()
+            for _, mob in ipairs(workspace.Enemies:GetChildren()) do
+                if not seen[mob.Name] then
+                    seen[mob.Name] = true
+                    table.insert(pool, mob.Name)
+                end
+            end
+        end)
+        for name in pairs(getgenv().WorldSpawnData or {}) do
+            if not seen[name] then
+                seen[name] = true
+                table.insert(pool, name)
+            end
+        end
+    end
+
+    local best, bestLen = nil, 0
+    for _, name in ipairs(pool) do
+        if name and #name > 0 and string.find(combined, name, 1, true) and #name > bestLen then
+            best, bestLen = name, #name
+        end
+    end
+    return best
+end
+getgenv().DetectQuestMobName = DetectQuestMobName
+
+--------------------------------------------------------------------
 -- LOGIC HỦY QUEST CŨ (QUAN TRỌNG)
 --------------------------------------------------------------------
 -- HÀM KIỂM TRA VÀ HỦY QUEST KHÔNG KHỚP VỚI MỤC TIÊU FARM
@@ -1629,34 +593,18 @@ local Sec = 0.1                   -- Thời gian delay giữa các lần cộng 
 --   true: Đã hủy quest cũ thành công
 --   false: Không cần hủy quest (quest đã khớp hoặc không có quest)
 local function CheckAndAbandonWrongQuest(questData)
-    -- Bước 1: Kiểm tra xem người chơi có giao diện quest không
-    local questGui = player.PlayerGui:FindFirstChild("Main")
-    if not questGui or not questGui:FindFirstChild("Quest") then
-        -- Không tìm thấy GUI quest, trả về false
+    -- Bước 1: Kiểm tra xem người chơi có đang có quest không (UI cũ hoặc UI mới)
+    if not HasActiveQuestUI() then
         return false
     end
-    
-    local quest = questGui.Quest
-    -- Bước 2: Kiểm tra quest có đang hiển thị không
-    if not quest.Visible then
-        -- Quest không visible, nghĩa là chưa nhận quest nào
-        return false
-    end
-    
-    -- Bước 3: Lấy tiêu đề quest hiện tại từ GUI
-    local questContainer = quest.Container
-    if not questContainer then return false end
-    
-    local questTitle = questContainer:FindFirstChild("QuestTitle")
-    if not questTitle then return false end
-    
-    local titleText = questTitle:FindFirstChild("Title")
-    if not titleText then return false end
-    
-    local currentQuestTitle = titleText.Text
-    
-    -- Bước 4: So sánh quest hiện tại với mob mục tiêu cần farm
-    -- Nếu tên mob KHÔNG nằm trong tiêu đề quest hiện tại -> quest sai, cần hủy
+
+    -- Bước 2: Gom toàn bộ text quest hiện tại (title/reward/tracked header)
+    local texts = GetQuestRawText()
+    if #texts == 0 then return false end
+    local currentQuestTitle = table.concat(texts, " | ")
+
+    -- Bước 3: So sánh quest hiện tại với mob mục tiêu cần farm
+    -- Nếu tên mob KHÔNG nằm trong text quest hiện tại -> quest sai, cần hủy
     if not string.find(currentQuestTitle, questData[5]) then
         pcall(function()
             -- Gọi remote để hủy quest
@@ -1743,14 +691,6 @@ getgenv().BringMobCount = 2         -- Số mob bring (2-6, gồm cả mob đang
 getgenv().TargetRange = 10000       -- Phạm vi tìm kiếm mob mục tiêu
 getgenv().SmoothMode = false
 getgenv().Noclip = false            -- Xuyên tường (tắt va chạm với địa hình)
-getgenv().UsePortalFruitTeleport = false -- Dùng Portal-Portal C để teleport thẳng tới đảo đích
-getgenv().TelePorto = false         -- Portal/intermediate teleport
-getgenv().TeleTiki = true            -- Cho phép dùng Tiki làm trung gian (W3)
-getgenv().ResetTeleportEnabled = false -- Reset teleport [Beta], ưu tiên cao nhất
-
--- Reset Teleport [Beta] được ưu tiên theo thứ tự:
---   Reset -> Tiki -> Portal
--- Reset chỉ được dùng khi nó thực sự rút ngắn quãng đường (>= 1000 stud).
 
 getgenv().IsFarming = false         -- Trạng thái đang farm (true = đang farm, false = dừng)
 getgenv().AutoBusoLoop = false      -- Tự động bật Buso Haki liên tục
@@ -2311,90 +1251,6 @@ spawn(function()
     end
 end)
 
---------------------------------------------------------------------
--- TOGGLE: TELEPORT PORTO (TELEPORT TRUNG GIAN)
--- Bật: trước mỗi lần tween xa (> 3000 stud XZ) sẽ dừng tween,
---      spam teleport đến đảo trung gian gần đích nhất, rồi mới tween đi.
--- Tắt: tween thẳng đến đích, không tele trung gian.
---------------------------------------------------------------------
-local PortalFruitTeleportToggle
-PortalFruitTeleportToggle = Tabs.Settings:CreateToggle("UsePortalFruitTeleport", {
-    Title = "Use PortalFruit Teleport",
-    Description = "Bật: dùng Portal-Portal để teleport thẳng tới đảo cần, đồng thời tắt TelePorto/Tiki/Reset.",
-    Default = false,
-    Callback = function(v)
-        if not v then
-            getgenv().UsePortalFruitTeleport = false
-            return
-        end
-
-        if not PortalFruit_HasPortal() then
-            getgenv().UsePortalFruitTeleport = false
-            task.defer(function()
-                pcall(function()
-                    PortalFruitTeleportToggle:SetValue(false)
-                end)
-            end)
-            Library:Notify({
-                Title = "Portal Teleport",
-                Content = "Fruit is not Portal",
-                Duration = 4
-            })
-            return
-        end
-
-        getgenv().UsePortalFruitTeleport = true
-
-        -- Portal Fruit độc quyền logic teleport.
-        getgenv().TelePorto = false
-        getgenv().TeleTiki = false
-        getgenv().ResetTeleportEnabled = false
-
-        pcall(function()
-            -- Tắt UI tương ứng nếu toggle đã tồn tại.
-            -- Không gọi callback vòng lặp vì SetValue chỉ cập nhật trạng thái.
-            local tp = Library.Options and Library.Options.TelePorto
-            if tp then tp:SetValue(false) end
-        end)
-        pcall(function()
-            local tiki = Library.Options and Library.Options.TeleTiki
-            if tiki then tiki:SetValue(false) end
-        end)
-        pcall(function()
-            local reset = Library.Options and Library.Options.ResetTeleportBeta
-            if reset then reset:SetValue(false) end
-        end)
-    end
-})
-
-Tabs.Settings:CreateToggle("TelePorto", {
-    Title = "Teleport Porto",
-    Description = "Bật: dùng tele trung gian khi tween xa (> 3000 stud). Tắt: tween thẳng không tele trung gian.",
-    Default = false,
-    Callback = function(v)
-        getgenv().TelePorto = v
-    end
-})
-
-Tabs.Settings:CreateToggle("TeleTiki", {
-    Title = "Tele Tiki",
-    Description = "Bật: dùng Tiki làm đảo trung gian. Tắt: Tiki là đảo bình thường, không dùng làm tele trung gian.",
-    Default = true,
-    Callback = function(v)
-        getgenv().TeleTiki = v
-    end
-})
-
-Tabs.Settings:CreateToggle("ResetTeleportBeta", {
-    Title = "Reset teleport [Beta]",
-    Description = "Ưu tiên cao nhất: đặt LastSpawnPoint gần đích rồi reset để respawn gần hơn. Thứ tự Reset -> Tiki -> Portal.",
-    Default = false,
-    Callback = function(v)
-        getgenv().ResetTeleportEnabled = v
-    end
-})
-
-
 --// ================= STATUS TAB =================
 Tabs.Status:AddSection("Generals Quests / Items")
 
@@ -2732,53 +1588,193 @@ end
 
 --// ================= HELPER FUNCTIONS =================
 -- ============================================================
--- LÕI FLY MỚI (_tp) - Topi Chest style, tích hợp cho Topi Hub
--- - Khi đang tween đúng speed → để chạy tiếp, không cancel/recreate
--- - Khi speed đổi → cancel và tạo tween mới
+-- LÕI FLY MỚI (_tp) — thay thế toàn bộ hệ thống tween/tele trung gian cũ
+-- (Portal/Tiki/Reset Teleport hop-chain đã bị xóa). Tween thẳng
+-- HumanoidRootPart về CFrame đích, tốc độ cố định 160 stud/s.
 -- ============================================================
+
+--------------------------------------------------------------------
+-- [FIX] HƯỚNG MẶT KHI TWEEN
+-- GetTPFacingRoot(mob): lấy HumanoidRootPart/PrimaryPart của mob để biết
+-- vị trí thực tế cần nhìn theo.
+--------------------------------------------------------------------
+local function GetTPFacingRoot(mob)
+    if not mob then return nil end
+    local root = mob:FindFirstChild("HumanoidRootPart")
+    if root then return root end
+    if mob:IsA("Model") then return mob.PrimaryPart end
+    return nil
+end
+
+-- Ngưỡng (stud) coi là mob/đích nằm "dưới chân" player: lệch X/Z (ngang)
+-- trong khoảng này so với player -> coi như thẳng đứng bên dưới.
+local TP_FACE_STRAIGHT_DOWN_RADIUS = 3
+
+--------------------------------------------------------------------
+-- GetTweenFacingCFrame(atPos, lookAtPos)
+-- Trả về 1 CFrame đặt tại atPos nhưng xoay mặt hướng về lookAtPos.
+-- Nếu lookAtPos gần như nằm thẳng dưới chân (lệch ngang X/Z rất nhỏ)
+-- -> luôn nhìn thẳng xuống dưới (tránh CFrame.lookAt lỗi/định hướng kỳ
+-- khi look vector gần song song trục Up, đồng thời đúng ý đồ gameplay:
+-- mob/đích ngay dưới chân thì phải cúi mặt nhìn thẳng xuống).
+--------------------------------------------------------------------
+local function GetTweenFacingCFrame(atPos, lookAtPos)
+    local diff  = lookAtPos - atPos
+    local horiz = Vector3.new(diff.X, 0, diff.Z)
+
+    if horiz.Magnitude <= TP_FACE_STRAIGHT_DOWN_RADIUS then
+        if diff.Y < 0 then
+            -- Mob/đích ngay dưới chân -> nhìn thẳng xuống (lookVector = -Y).
+            return CFrame.new(atPos) * CFrame.Angles(-math.pi / 2, 0, 0)
+        elseif diff.Y > 0 then
+            -- Mob/đích ngay trên đầu -> nhìn thẳng lên (lookVector = +Y).
+            return CFrame.new(atPos) * CFrame.Angles(math.pi / 2, 0, 0)
+        end
+        return CFrame.new(atPos)
+    end
+
+    local ok, cf = pcall(CFrame.lookAt, atPos, lookAtPos)
+    if ok and cf then return cf end
+    return CFrame.new(atPos)
+end
 
 -- Gán vào local _tp đã forward-declare ở trên (không dùng local function
 -- mới — sẽ tạo local shadow và các chỗ gọi sớm vẫn trỏ global nil).
-_tp = function(targetCF, speed)
+-- Lưu ý: tham số speed cũ không còn được dùng (tốc độ cố định 160), các
+-- chỗ gọi cũ truyền thêm speed vẫn không lỗi (Lua bỏ qua tham số dư).
+_tp = function(targetCF, _speed)
     if not shouldTween then return end
-    if _intermediateRunning then return end  -- Đang tele trung gian → không tween
     if getgenv().BuddhaTransforming then return end
-    local char = player.Character; if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
 
-    local dist = (targetCF.Position - hrp.Position).Magnitude
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    local rootPart = character.HumanoidRootPart
 
-    if dist < 1 then return end  -- Đã đến nơi, không cần làm gì
+    ----------------------------------------------------------------
+    -- [FIX] Luôn hướng mặt player về phía mob đang farm (nếu có) hoặc
+    -- về phía điểm đích đang tween tới (nếu không có mob). Xem
+    -- GetTweenFacingCFrame ở trên cho trường hợp mob/đích ngay dưới chân.
+    ----------------------------------------------------------------
+    local lookAtPos = targetCF.Position
+    do
+        local farmMob = getgenv().CurrentTargetMob or getgenv().CurrentFarmTarget
+        if farmMob and farmMob.Parent then
+            local mHum  = farmMob:FindFirstChildOfClass("Humanoid")
+            local mRoot = GetTPFacingRoot(farmMob)
+            if mHum and mHum.Health > 0 and mRoot and mRoot:IsDescendantOf(workspace) then
+                lookAtPos = mRoot.Position
+            end
+        end
+    end
 
-    -- Xóa logic tăng tốc khi tới gần đích: luôn dùng đúng speed truyền vào.
-    local effectiveSpeed = speed
+    local target = GetTweenFacingCFrame(targetCF.Position, lookAtPos)
 
-    -- ── Xa đích: tween, cập nhật khi mob di chuyển ──
-    -- Cancel + tạo tween mới nếu: chưa có tween, đổi speed,
-    -- hoặc mob đã di chuyển > 3 studs so với đích cũ
-    local needUpdate = (not currentTween)
-        or (currentTweenSpeed ~= effectiveSpeed)
-        or (currentTweenTarget == nil)
-        or ((currentTweenTarget - targetCF.Position).Magnitude > 3)
+    local distance = (target.Position - rootPart.Position).Magnitude
+    if distance < 1 then return end  -- Đã đến nơi, không cần làm gì
 
-    if not needUpdate then return end
+    -- Huỷ tween cũ trước khi tạo tween mới, tránh nhiều tween chồng lên
+    -- nhau khi _tp được gọi liên tục mỗi frame từ các vòng farm.
+    if currentTween then
+        pcall(function() currentTween:Cancel() end)
+        currentTween = nil
+    end
 
-    if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-    currentTweenSpeed  = effectiveSpeed
-    currentTweenTarget = targetCF.Position
-    currentTween = TweenService:Create(hrp,
-        TweenInfo.new(dist / effectiveSpeed, Enum.EasingStyle.Linear),
-        {CFrame = targetCF})
-    currentTween:Play()
-    currentTween.Completed:Once(function()
-        currentTween       = nil
-        currentTweenTarget = nil
+    local tweenInfo = TweenInfo.new(distance / 160, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(rootPart, tweenInfo, {
+        CFrame = target
+    })
+    currentTween = tween
+
+    if character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Sit == true then
+        rootPart.CFrame = CFrame.new(rootPart.Position.X, target.Y, rootPart.Position.Z)
+    end
+
+    tween:Play()
+    task.spawn(function()
+        while tween.PlaybackState == Enum.PlaybackState.Playing do
+            if not shouldTween then
+                tween:Cancel()
+                break
+            end
+            task.wait(0.1)
+        end
+        if currentTween == tween then
+            currentTween = nil
+        end
     end)
+end
+
+TeleportToTarget = function(targetCFrame)
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    if (targetCFrame.Position - character.HumanoidRootPart.Position).Magnitude > 1000 then
+        _tp(targetCFrame)
+    else
+        _tp(targetCFrame)
+    end
+end
+
+notween = function(p)
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    character.HumanoidRootPart.CFrame = p
+end
+
+--------------------------------------------------------------------
+-- BTP(p): reset teleport kiểu "brute force" — giết nhân vật liên tục và
+-- ép CFrame về p cho tới khi hồi sinh đủ gần đích (<= 2000 stud).
+--------------------------------------------------------------------
+function BTP(p)
+    local character = player.Character
+    if not character then return end
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoidRootPart or not humanoid then return end
+
+    local playerGui = player:FindFirstChild("PlayerGui")
+    local mainGui = playerGui and playerGui:FindFirstChild("Main")
+    local lastPosition = humanoidRootPart.Position
+
+    repeat
+        humanoid.Health = 0
+        humanoidRootPart.CFrame = p
+        if mainGui then
+            local quest = mainGui:FindFirstChild("Quest")
+            if quest then quest.Visible = false end
+        end
+        if (humanoidRootPart.Position - lastPosition).Magnitude > 1 then
+            lastPosition = humanoidRootPart.Position
+            humanoidRootPart.CFrame = p
+        end
+        task.wait(0.5)
+    until (p.Position - humanoidRootPart.Position).Magnitude <= 2000
 end
 
 -- Backward-compat aliases (tham số root/obj bỏ qua, hrp lấy nội bộ)
 local function FlyMove(_, cf, speed) _tp(cf, speed) end
 local function TweenObject(_, cf, speed) _tp(cf, speed) end
+
+--------------------------------------------------------------------
+-- [FIX] ĐI TRÊN NƯỚC
+-- Bật CanCollide cho mặt nước, anchor lại và liên tục ép Size mỗi frame
+-- (chống game tự resize) -> player đi bộ được trên mặt biển.
+-- Luôn hoạt động ngầm ngay khi script load, không cần toggle.
+--------------------------------------------------------------------
+do
+    task.spawn(function()
+        local map = workspace:WaitForChild("Map", 30)
+        local water = map and (map:FindFirstChild("WaterBase-Plane") or map:WaitForChild("WaterBase-Plane", 30))
+        if water then
+            water.CanCollide = true
+            water.Anchored = true
+            RunService.Stepped:Connect(function()
+                water.Size = Vector3.new(1000, 112, 1000)
+            end)
+        end
+    end)
+end
 
 --------------------------------------------------------------------
 -- FARM STAND POSITION
@@ -3474,17 +2470,45 @@ end)
 
 function startFly()
     shouldTween = true
+
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    if not hrp:FindFirstChild("BodyClip") then
+        local Noclip = Instance.new("BodyVelocity")
+        Noclip.Name = "BodyClip"
+        Noclip.Parent = hrp
+        Noclip.MaxForce = Vector3.new(100000, 100000, 100000)
+        Noclip.Velocity = Vector3.new(0, 0, 0)
+    end
+
+    if not char:FindFirstChild('highlight') then
+        local Test = Instance.new('Highlight')
+        Test.Name = "highlight"
+        Test.Enabled = true
+        Test.FillColor = Color3.fromRGB(0, 191, 255) -- xanh nước biển
+        Test.OutlineColor = Color3.fromRGB(255, 255, 255)
+        Test.FillTransparency = 0.5
+        Test.OutlineTransparency = 0.2
+        Test.Parent = char
+    end
+
+    for _, no in pairs(char:GetDescendants()) do
+        if no:IsA("BasePart") then
+            no.CanCollide = false
+        end
+    end
 end
 
 function stopFly()
     shouldTween = false
     if currentTween then
         pcall(function() currentTween:Cancel() end)
-        currentTween       = nil
-        currentTweenSpeed  = 0
-        currentTweenTarget = nil
+        currentTween = nil
     end
-    -- Xoá BodyVelocity ngay lập tức (không chờ vòng lặp)
+    -- Xoá BodyVelocity + Highlight ngay lập tức (không chờ vòng lặp)
     pcall(function()
         local char = player.Character
         if char then
@@ -3493,6 +2517,8 @@ function stopFly()
                 local bc = hrp:FindFirstChild("BodyClip")
                 if bc then bc:Destroy() end
             end
+            local hl = char:FindFirstChild('highlight')
+            if hl then hl:Destroy() end
         end
     end)
 end
@@ -3503,709 +2529,516 @@ end
 -- Chỉ áp dụng cho các khu vực có 2 quest cùng vị trí NPC (cùng PosQ).
 local DualQuestPairings = {
     -- World 1
-    JungleQuest       = {Mon="Monkey",           Qdata=1, NameMon="Monkey",           PosM=CFrame.new(-1448.5180664062,  67.853012084961,    11.465796470642)},
-    BuggyQuest1       = {Mon="Pirate",            Qdata=1, NameMon="Pirate",            PosM=CFrame.new(-1103.5134277344,  13.752052307129,  3896.0910644531)},
-    DesertQuest       = {Mon="Desert Bandit",     Qdata=1, NameMon="Desert Bandit",     PosM=CFrame.new(924.7998046875,    6.4486746788025,  4481.5859375)},
-    SnowQuest         = {Mon="Snow Bandit",       Qdata=1, NameMon="Snow Bandit",       PosM=CFrame.new(1354.3479003906,  87.272773742676, -1393.9465332031)},
-    SkyQuest          = {Mon="Sky Bandit",        Qdata=1, NameMon="Sky Bandit",        PosM=CFrame.new(-4953.20703125,   295.74420166016, -2899.2290039062)},
-    PrisonerQuest     = {Mon="Prisoner",          Qdata=1, NameMon="Prisoner",          PosM=CFrame.new(5098.9736328125,  -0.3204058110714,   474.23733520508)},
-    ColosseumQuest    = {Mon="Toga Warrior",      Qdata=1, NameMon="Toga Warrior",      PosM=CFrame.new(-1820.21484375,   51.683856964111, -2740.6650390625)},
-    MagmaQuest        = {Mon="Military Soldier",  Qdata=1, NameMon="Military Soldier",  PosM=CFrame.new(-5411.1645507812, 11.081554412842,  8454.29296875)},
-    FishmanQuest      = {Mon="Fishman Warrior",   Qdata=1, NameMon="Fishman Warrior",   PosM=CFrame.new(60878.30078125,   18.482830047607,  1543.7574462891)},
-    SkyExp2Quest      = {Mon="Royal Squad",       Qdata=1, NameMon="Royal Squad",       PosM=CFrame.new(-7624.2524414062, 5658.1333007812, -1467.3542480469)},
-    FountainQuest     = {Mon="Galley Pirate",     Qdata=1, NameMon="Galley Pirate",     PosM=CFrame.new(5551.0219726562,  78.901351928711,  3930.4128417969)},
+    JungleQuest = {Qdata = 1},
+    BuggyQuest1 = {Qdata = 1},
+    DesertQuest = {Qdata = 1},
+    SnowQuest = {Qdata = 1},
+    SkyQuest = {Qdata = 1},
+    PrisonerQuest = {Qdata = 1},
+    ColosseumQuest = {Qdata = 1},
+    MagmaQuest = {Qdata = 1},
+    FishmanQuest = {Qdata = 1},
+    SkyExp2Quest = {Qdata = 1},
+    FountainQuest = {Qdata = 1},
     -- World 2
-    Area1Quest        = {Mon="Raider",            Qdata=1, NameMon="Raider",            PosM=CFrame.new(-728.32672119141, 52.779319763184,  2345.7705078125)},
-    Area2Quest        = {Mon="Swan Pirate",       Qdata=1, NameMon="Swan Pirate",       PosM=CFrame.new(1068.6643066406, 137.61428833008,   1322.1060791016)},
-    MarineQuest3      = {Mon="Marine Lieutenant", Qdata=1, NameMon="Marine Lieutenant", PosM=CFrame.new(-2821.3723144531, 75.897277832031, -3070.0891113281)},
-    ZombieQuest       = {Mon="Zombie",            Qdata=1, NameMon="Zombie",            PosM=CFrame.new(-5657.7768554688, 78.969734191895,  -928.68701171875)},
-    SnowMountainQuest = {Mon="Snow Trooper",      Qdata=1, NameMon="Snow Trooper",      PosM=CFrame.new(549.14733886719, 427.38705444336,  -5563.6987304688)},
-    IceSideQuest      = {Mon="Lab Subordinate",   Qdata=1, NameMon="Lab Subordinate",   PosM=CFrame.new(-5707.4716796875, 15.951709747314, -4513.3920898438)},
-    FireSideQuest     = {Mon="Magma Ninja",       Qdata=1, NameMon="Magma Ninja",       PosM=CFrame.new(-5449.6728515625, 76.658744812012, -5808.2006835938)},
-    ShipQuest1        = {Mon="Ship Deckhand",     Qdata=1, NameMon="Ship Deckhand",     PosM=CFrame.new(1212.0111083984, 150.79205322266,  33059.24609375)},
-    ShipQuest2        = {Mon="Ship Steward",      Qdata=1, NameMon="Ship Steward",      PosM=CFrame.new(919.43853759766, 129.55599975586,  33436.03515625)},
-    FrostQuest        = {Mon="Arctic Warrior",    Qdata=1, NameMon="Arctic Warrior",    PosM=CFrame.new(5966.24609375,   62.970020294189, -6179.3828125)},
-    ForgottenQuest    = {Mon="Sea Soldier",       Qdata=1, NameMon="Sea Soldier",       PosM=CFrame.new(-3028.2236328125, 64.674514770508, -9775.4267578125)},
+    Area1Quest = {Qdata = 1},
+    Area2Quest = {Qdata = 1},
+    MarineQuest3 = {Qdata = 1},
+    ZombieQuest = {Qdata = 1},
+    SnowMountainQuest = {Qdata = 1},
+    IceSideQuest = {Qdata = 1},
+    FireSideQuest = {Qdata = 1},
+    ShipQuest1 = {Qdata = 1},
+    ShipQuest2 = {Qdata = 1},
+    FrostQuest = {Qdata = 1},
+    ForgottenQuest = {Qdata = 1},
     -- World 3
-    PiratePortQuest   = {Mon="Pirate Millionaire",    Qdata=1, NameMon="Pirate Millionaire",    PosM=CFrame.new(-246.00,          47.31,       5584.10)},
-    DragonCrewQuest   = {Mon="Dragon Crew Warrior",   Qdata=1, NameMon="Dragon Crew Warrior",   PosM=CFrame.new(6709.76367,       52.3442993, -1139.02966)},
-    VenomCrewQuest    = {Mon="Hydra Enforcer",        Qdata=1, NameMon="Hydra Enforcer",        PosM=CFrame.new(4547.11523,     1003.10217,     334.194824)},
-    MarineTreeIsland  = {Mon="Marine Commodore",      Qdata=1, NameMon="Marine Commodore",      PosM=CFrame.new(2519,            109,          -7633)},
-    DeepForestIsland3 = {Mon="Fishman Raider",        Qdata=1, NameMon="Fishman Raider",        PosM=CFrame.new(-10407.526367188, 331.76263427734, -8368.5166015625)},
-    DeepForestIsland  = {Mon="Forest Pirate",         Qdata=1, NameMon="Forest Pirate",         PosM=CFrame.new(-13274.478515625, 332.37814331055, -7769.5805664062)},
-    DeepForestIsland2 = {Mon="Jungle Pirate",         Qdata=1, NameMon="Jungle Pirate",         PosM=CFrame.new(-12256.16015625,  331.73828125,  -10485.836914062)},
-    HauntedQuest1     = {Mon="Reborn Skeleton",       Qdata=1, NameMon="Reborn Skeleton",       PosM=CFrame.new(-8763.7236328125, 165.72299194336,  6159.8618164062)},
-    HauntedQuest2     = {Mon="Demonic Soul",          Qdata=1, NameMon="Demonic Soul",          PosM=CFrame.new(-9505.8720703125, 172.10482788086,  6158.9931640625)},
-    NutsIslandQuest   = {Mon="Peanut Scout",          Qdata=1, NameMon="Peanut Scout",          PosM=CFrame.new(-2143.2419433594,  47.721984863281,-10029.995117188)},
-    IceCreamIslandQuest={Mon="Ice Cream Chef",        Qdata=1, NameMon="Ice Cream Chef",        PosM=CFrame.new(-872.24658203125,  65.81957244873, -10919.95703125)},
-    CakeQuest1        = {Mon="Cookie Crafter",        Qdata=1, NameMon="Cookie Crafter",        PosM=CFrame.new(-2374.13671875,    37.798263549805,-12125.30859375)},
-    CakeQuest2        = {Mon="Baking Staff",          Qdata=1, NameMon="Baking Staff",          PosM=CFrame.new(-1887.8099365234,  77.618507385254,-12998.350585938)},
-    ChocQuest1        = {Mon="Cocoa Warrior",         Qdata=1, NameMon="Cocoa Warrior",         PosM=CFrame.new(-21.553283691406,  80.574996948242,-12352.387695312)},
-    ChocQuest2        = {Mon="Sweet Thief",           Qdata=1, NameMon="Sweet Thief",           PosM=CFrame.new(165.1884765625,    76.058853149414,-12600.836914062)},
-    TikiQuest1        = {Mon="Isle Outlaw",           Qdata=1, NameMon="Isle Outlaw",           PosM=CFrame.new(-16479.900390625,  226.6117401123,   -300.31143188477)},
-    TikiQuest2        = {Mon="Sun-kissed Warrior",    Qdata=1, NameMon="kissed Warrior",        PosM=CFrame.new(-16347,            64,               984)},
-    TikiQuest3        = {Mon="Serpent Hunter",        Qdata=1, NameMon="Serpent Hunter",        PosM=CFrame.new(-16645.64,         163.09,          1352.87)},
-    SubmergedQuest1   = {Mon="Reef Bandit",           Qdata=1, NameMon="Reef Bandit",           PosM=CFrame.new(11019.1318,      -2146.06812,       9342.3916)},
-    SubmergedQuest2   = {Mon="Sea Chanter",           Qdata=1, NameMon="Sea Chanter",           PosM=CFrame.new(10671.2715,      -2057.59155,      10047.2588)},
-    SubmergedQuest3   = {Mon="High Disciple",         Qdata=1, NameMon="High Disciple",         PosM=CFrame.new(9750.41602,      -1966.93884,       9753.36035)},
+    PiratePortQuest = {Qdata = 1},
+    DragonCrewQuest = {Qdata = 1},
+    VenomCrewQuest = {Qdata = 1},
+    MarineTreeIsland = {Qdata = 1},
+    DeepForestIsland3 = {Qdata = 1},
+    DeepForestIsland = {Qdata = 1},
+    DeepForestIsland2 = {Qdata = 1},
+    HauntedQuest1 = {Qdata = 1},
+    HauntedQuest2 = {Qdata = 1},
+    NutsIslandQuest = {Qdata = 1},
+    IceCreamIslandQuest = {Qdata = 1},
+    CakeQuest1 = {Qdata = 1},
+    CakeQuest2 = {Qdata = 1},
+    ChocQuest1 = {Qdata = 1},
+    ChocQuest2 = {Qdata = 1},
+    TikiQuest1 = {Qdata = 1},
+    TikiQuest2 = {Qdata = 1},
+    TikiQuest3 = {Qdata = 1},
+    SubmergedQuest1 = {Qdata = 1},
+    SubmergedQuest2 = {Qdata = 1},
+    SubmergedQuest3 = {Qdata = 1},
 }
+
+--// ================= QUEST NPC NAMES =================
+-- Tên NPC giao quest thật trong game (khớp với workspace.NPCs) cho TỪNG
+-- Qname — mỗi mốc level (xem QuestNeta bên dưới) trả về 1 Qname khác nhau,
+-- và Qname đó được tra RA ĐÚNG tên NPC tương ứng trong bảng này (không cố
+-- định 1 NPC). VD: level 0-9 team Pirates → Qname="BanditQuest1" → tra ra
+-- "Bandit Quest Giver"; level 10-29 → Qname="JungleQuest" → tra ra
+-- "Adventurer"; v.v. Dùng để tween tới NPC bằng logic check NPC có sẵn
+-- (quét workspace.NPCs theo tên) thay vì CFrame cố định (PosQ) như trước —
+-- vị trí NPC lấy trực tiếp từ NPC đang đứng trong game nên luôn đúng dù
+-- NPC có patrol/di chuyển.
+local QuestNPCNames = {
+    -- World 1
+    MarineQuest       = "Marine Leader",
+    BanditQuest1      = "Bandit Quest Giver",
+    JungleQuest       = "Adventurer",
+    BuggyQuest1       = "Pirate Adventurer",
+    DesertQuest       = "Desert Adventurer",
+    SnowQuest         = "Villager",
+    MarineQuest2      = "Marine",
+    SkyQuest          = "Sky Adventurer",
+    PrisonerQuest     = "Jail Keeper",
+    ColosseumQuest    = "Colosseum Quest Giver",
+    MagmaQuest        = "The Mayor",
+    FishmanQuest      = "King Neptune",
+    SkyExp1Quest      = "Mole",
+    SkyExp2Quest      = "Sky Quest Giver 2",
+    FountainQuest     = "Freezeburg Quest Giver",
+    -- World 2
+    Area1Quest        = "Area 1 Quest Giver",
+    Area2Quest        = "Area 2 Quest Giver",
+    MarineQuest3      = "Marine Quest Giver",
+    ZombieQuest       = "Graveyard Quest Giver",
+    SnowMountainQuest = "Snow Quest Giver",
+    IceSideQuest      = "Ice Quest Giver",
+    FireSideQuest     = "Fire Quest Giver",
+    ShipQuest1        = "Rear Crew Quest Giver",
+    ShipQuest2        = "Front Crew Quest Giver",
+    FrostQuest        = "Frost Quest Giver",
+    ForgottenQuest    = "Forgotten Quest Giver",
+    -- World 3
+    PiratePortQuest      = "Pirate Port Quest Giver",
+    DragonCrewQuest      = "Dragon Crew Quest Giver",
+    VenomCrewQuest       = "Hydra Town Quest Giver",
+    MarineTreeIsland     = "Marine Tree Quest Giver",
+    DeepForestIsland3    = "Turtle Adventure Quest Giver",
+    DeepForestIsland     = "Deep Forest Quest Giver",
+    DeepForestIsland2    = "Deep Forest Area 2 Quest Giver",
+    HauntedQuest1        = "Haunted Castle Quest Giver 1",
+    HauntedQuest2        = "Haunted Castle Quest Giver 2",
+    NutsIslandQuest      = "Peanut Quest Giver",
+    IceCreamIslandQuest  = "Ice Cream Quest Giver",
+    CakeQuest1           = "Cake Quest Giver 1",
+    CakeQuest2           = "Cake Quest Giver 2",
+    ChocQuest1           = "Chocolate Quest Giver 1",
+    ChocQuest2           = "Chocolate Quest Giver 2",
+    CandyQuest1          = "Candy Cane Quest Giver",
+    TikiQuest1           = "Tiki Quest Giver 1",
+    TikiQuest2           = "Tiki Quest Giver 2",
+    TikiQuest3           = "Tiki Quest Giver 3",
+    SubmergedQuest1      = "Submerged Quest Giver 1",
+    SubmergedQuest2      = "Submerged Quest Giver 2",
+    SubmergedQuest3      = "Submerged Quest Giver 3",
+}
+
+-- Nhận vào npcName (tên NPC đúng của mốc level HIỆN TẠI, do QuestNPCNames
+-- tra ra ở call site — hàm này không tự chọn/không cố định tên nào) rồi
+-- quét workspace.NPCs để lấy CFrame hiện tại của NPC đó. NPC quest thật
+-- nằm trong workspace.NPCs chứ không phải ReplicatedStorage.NPCs. Trả về
+-- nil nếu NPC không có trong server (chưa spawn / đổi tên).
+local function GetQuestNPCCFrame(npcName)
+    if not npcName then return nil end
+    local cf = nil
+    pcall(function()
+        local npcFolder = workspace:FindFirstChild("NPCs")
+        local npc = npcFolder and npcFolder:FindFirstChild(npcName)
+        local hrp = npc and (npc:FindFirstChild("HumanoidRootPart") or (npc:IsA("Model") and npc.PrimaryPart))
+        if hrp then
+            cf = hrp.CFrame
+        end
+    end)
+    return cf
+end
 
 --// ================= QUEST DATA FUNCTION =================
 local function QuestNeta()
     local I = player.Data.Level.Value
-    local Mon, Qdata, Qname, NameMon, PosM, PosQ
+    local Qdata, Qname, PosQ
     
     if World1 then
         if I == 1 or I <= 9 then
             if tostring(TeamSelf) == "Marines" then
-                Mon = "Trainee"
                 Qname = "MarineQuest"
-                Qdata = 1
-                NameMon = "Trainee"
-                PosM = CFrame.new(-2709.67944, 24.5206585, 2104.24585, -0.744724929, -3.97967455e-08, -0.667371571, 4.32403588e-08, 1, -1.07884304e-07, .667371571, -1.09201515e-07, -0.744724929)
                 PosQ = CFrame.new(-2709.67944, 24.5206585, 2104.24585, -0.744724929, -3.97967455e-08, -0.667371571, 4.32403588e-08, 1, -1.07884304e-07, .667371571, -1.09201515e-07, -0.744724929)
+                Qdata = 1
             elseif tostring(TeamSelf) == "Pirates" then
-                Mon = "Bandit"
                 Qdata = 1
                 Qname = "BanditQuest1"
-                NameMon = "Bandit"
-                PosM = CFrame.new(1045.9626464844, 27.002508163452, 1560.8203125)
                 PosQ = CFrame.new(1045.9626464844, 27.002508163452, 1560.8203125)
             end
         elseif I == 10 or I <= 14 then
-            Mon = "Monkey"
             Qdata = 1
             Qname = "JungleQuest"
-            NameMon = "Monkey"
             PosQ = CFrame.new(-1598.08911, 35.5501175, 153.377838, 0, 0, 1, 0, 1, 0, -1, 0, 0)
-            PosM = CFrame.new(-1448.5180664062, 67.853012084961, 11.465796470642)
         elseif I == 15 or I <= 29 then
-            Mon = "Gorilla"
             Qdata = 2
             Qname = "JungleQuest"
-            NameMon = "Gorilla"
             PosQ = CFrame.new(-1598.08911, 35.5501175, 153.377838, 0, 0, 1, 0, 1, 0, -1, 0, 0)
-            PosM = CFrame.new(-1129.8836669922, 40.46354675293, -525.42370605469)
         elseif I == 30 or I <= 39 then
-            Mon = "Pirate"
             Qdata = 1
             Qname = "BuggyQuest1"
-            NameMon = "Pirate"
             PosQ = CFrame.new(-1141.07483, 4.10001802, 3831.5498, .965929627, 0, -0.258804798, 0, 1, 0, .258804798, 0, .965929627)
-            PosM = CFrame.new(-1103.5134277344, 13.752052307129, 3896.0910644531)
         elseif I == 40 or I <= 59 then
-            Mon = "Brute"
             Qdata = 2
             Qname = "BuggyQuest1"
-            NameMon = "Brute"
             PosQ = CFrame.new(-1141.07483, 4.10001802, 3831.5498, .965929627, 0, -0.258804798, 0, 1, 0, .258804798, 0, .965929627)
-            PosM = CFrame.new(-1140.0837402344, 14.809885025024, 4322.9213867188)
         elseif I == 60 or I <= 74 then
-            Mon = "Desert Bandit"
             Qdata = 1
             Qname = "DesertQuest"
-            NameMon = "Desert Bandit"
             PosQ = CFrame.new(894.488647, 5.14000702, 4392.43359, .819155693, 0, -0.573571265, 0, 1, 0, .573571265, 0, .819155693)
-            PosM = CFrame.new(924.7998046875, 6.4486746788025, 4481.5859375)
         elseif I == 75 or I <= 89 then
-            Mon = "Desert Officer"
             Qdata = 2
             Qname = "DesertQuest"
-            NameMon = "Desert Officer"
             PosQ = CFrame.new(894.488647, 5.14000702, 4392.43359, .819155693, 0, -0.573571265, 0, 1, 0, .573571265, 0, .819155693)
-            PosM = CFrame.new(1608.2822265625, 8.6142244338989, 4371.0073242188)
         elseif I == 90 or I <= 99 then
-            Mon = "Snow Bandit"
             Qdata = 1
             Qname = "SnowQuest"
-            NameMon = "Snow Bandit"
             PosQ = CFrame.new(1389.74451, 88.1519318, -1298.90796, -0.342042685, 0, .939684391, 0, 1, 0, -0.939684391, 0, -0.342042685)
-            PosM = CFrame.new(1354.3479003906, 87.272773742676, -1393.9465332031)
         elseif I == 100 or I <= 119 then
-            Mon = "Snowman"
             Qdata = 2
             Qname = "SnowQuest"
-            NameMon = "Snowman"
             PosQ = CFrame.new(1389.74451, 88.1519318, -1298.90796, -0.342042685, 0, .939684391, 0, 1, 0, -0.939684391, 0, -0.342042685)
-            PosM = CFrame.new(1200, 144, -1550)
         elseif I == 120 or I <= 149 then
-            Mon = "Chief Petty Officer"
             Qdata = 1
             Qname = "MarineQuest2"
-            NameMon = "Chief Petty Officer"
             PosQ = CFrame.new(-5039.58643, 27.3500385, 4324.68018, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-4881.2309570312, 22.652044296265, 4273.7524414062)
         elseif I == 150 or I <= 174 then
-            Mon = "Sky Bandit"
             Qdata = 1
             Qname = "SkyQuest"
-            NameMon = "Sky Bandit"
             PosQ = CFrame.new(-4839.53027, 716.368591, -2619.44165, .866007268, 0, .500031412, 0, 1, 0, -0.500031412, 0, .866007268)
-            PosM = CFrame.new(-4953.20703125, 295.74420166016, -2899.2290039062)
         elseif I == 175 or I <= 189 then
-            Mon = "Dark Master"
             Qdata = 2
             Qname = "SkyQuest"
-            NameMon = "Dark Master"
             PosQ = CFrame.new(-4839.53027, 716.368591, -2619.44165, .866007268, 0, .500031412, 0, 1, 0, -0.500031412, 0, .866007268)
-            PosM = CFrame.new(-5259.8447265625, 391.39767456055, -2229.0354003906)
         elseif I == 190 or I <= 209 then
-            Mon = "Prisoner"
             Qdata = 1
             Qname = "PrisonerQuest"
-            NameMon = "Prisoner"
             PosQ = CFrame.new(5308.93115, 1.65517521, 475.120514, -0.0894274712, -5.00292918e-09, -0.995993316, 1.60817859e-09, 1, -5.16744869e-09, .995993316, -2.06384709e-09, -0.0894274712)
-            PosM = CFrame.new(5098.9736328125, -0.3204058110714, 474.23733520508)
         elseif I == 210 or I <= 249 then
-            Mon = "Dangerous Prisoner"
             Qdata = 2
             Qname = "PrisonerQuest"
-            NameMon = "Dangerous Prisoner"
             PosQ = CFrame.new(5308.93115, 1.65517521, 475.120514, -0.0894274712, -5.00292918e-09, -0.995993316, 1.60817859e-09, 1, -5.16744869e-09, .995993316, -2.06384709e-09, -0.0894274712)
-            PosM = CFrame.new(5654.5634765625, 15.633401870728, 866.29919433594)
         elseif I == 250 or I <= 274 then
-            Mon = "Toga Warrior"
             Qdata = 1
             Qname = "ColosseumQuest"
-            NameMon = "Toga Warrior"
             PosQ = CFrame.new(-1580.04663, 6.35000277, -2986.47534, -0.515037298, 0, -0.857167721, 0, 1, 0, .857167721, 0, -0.515037298)
-            PosM = CFrame.new(-1820.21484375, 51.683856964111, -2740.6650390625)
         elseif I == 275 or I <= 299 then
-            Mon = "Gladiator"
             Qdata = 2
             Qname = "ColosseumQuest"
-            NameMon = "Gladiator"
             PosQ = CFrame.new(-1580.04663, 6.35000277, -2986.47534, -0.515037298, 0, -0.857167721, 0, 1, 0, .857167721, 0, -0.515037298)
-            PosM = CFrame.new(-1292.8381347656, 56.380882263184, -3339.0314941406)
         elseif I == 300 or I <= 324 then
-            Mon = "Military Soldier"
             Qdata = 1
             Qname = "MagmaQuest"
-            NameMon = "Military Soldier"
             PosQ = CFrame.new(-5313.37012, 10.9500084, 8515.29395, -0.499959469, 0, .866048813, 0, 1, 0, -0.866048813, 0, -0.499959469)
-            PosM = CFrame.new(-5411.1645507812, 11.081554412842, 8454.29296875)
         elseif I == 325 or I <= 374 then
-            Mon = "Military Spy"
             Qdata = 2
             Qname = "MagmaQuest"
-            NameMon = "Military Spy"
             PosQ = CFrame.new(-5313.37012, 10.9500084, 8515.29395, -0.499959469, 0, .866048813, 0, 1, 0, -0.866048813, 0, -0.499959469)
-            PosM = CFrame.new(-5802.8681640625, 86.262413024902, 8828.859375)
         elseif I == 375 or I <= 399 then
-            Mon = "Fishman Warrior"
             Qdata = 1
             Qname = "FishmanQuest"
-            NameMon = "Fishman Warrior"
             PosQ = CFrame.new(61122.65234375, 18.497442245483, 1569.3997802734)
-            PosM = CFrame.new(60878.30078125, 18.482830047607, 1543.7574462891)
         elseif I == 400 or I <= 449 then
-            Mon = "Fishman Commando"
             Qdata = 2
             Qname = "FishmanQuest"
-            NameMon = "Fishman Commando"
             PosQ = CFrame.new(61122.65234375, 18.497442245483, 1569.3997802734)
-            PosM = CFrame.new(61922.6328125, 18.482830047607, 1493.9343261719)
         elseif I == 450 or I <= 474 then
-            Mon = "God's Guard"
             Qdata = 1
             Qname = "SkyExp1Quest"
-            NameMon = "God's Guard"
             PosQ = CFrame.new(-4721.88867, 843.874695, -1949.96643, .996191859, 0, -0.0871884301, 0, 1, 0, .0871884301, 0, .996191859)
-            PosM = CFrame.new(-4710.04296875, 845.27697753906, -1927.3079833984)
         elseif I == 475 or I <= 524 then
-            Mon = "Shanda"
             Qdata = 2
             Qname = "SkyExp1Quest"
-            NameMon = "Shanda"
             PosQ = CFrame.new(-7859.09814, 5544.19043, -381.476196, -0.422592998, 0, .906319618, 0, 1, 0, -0.906319618, 0, -0.422592998)
-            PosM = CFrame.new(-7678.4897460938, 5566.4038085938, -497.21560668945)
         elseif I == 525 or I <= 549 then
-            Mon = "Royal Squad"
             Qdata = 1
             Qname = "SkyExp2Quest"
-            NameMon = "Royal Squad"
             PosQ = CFrame.new(-7906.81592, 5634.6626, -1411.99194, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-7624.2524414062, 5658.1333007812, -1467.3542480469)
         elseif I == 550 or I <= 624 then
-            Mon = "Royal Soldier"
             Qdata = 2
             Qname = "SkyExp2Quest"
-            NameMon = "Royal Soldier"
             PosQ = CFrame.new(-7906.81592, 5634.6626, -1411.99194, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-7836.7534179688, 5645.6640625, -1790.6236572266)
         elseif I == 625 or I <= 649 then
-            Mon = "Galley Pirate"
             Qdata = 1
             Qname = "FountainQuest"
-            NameMon = "Galley Pirate"
             PosQ = CFrame.new(5259.81982, 37.3500175, 4050.0293, .087131381, 0, .996196866, 0, 1, 0, -0.996196866, 0, .087131381)
-            PosM = CFrame.new(5551.0219726562, 78.901351928711, 3930.4128417969)
         elseif I >= 650 and I <= 699 then
-            Mon = "Galley Captain"
             Qdata = 2
             Qname = "FountainQuest"
-            NameMon = "Galley Captain"
             PosQ = CFrame.new(5259.81982, 37.3500175, 4050.0293, .087131381, 0, .996196866, 0, 1, 0, -0.996196866, 0, .087131381)
-            PosM = CFrame.new(5441.9516601562, 42.502059936523, 4950.09375)
         end
     elseif World2 then
         if I == 700 or I <= 724 then
-            Mon = "Raider"
             Qdata = 1
             Qname = "Area1Quest"
-            NameMon = "Raider"
             PosQ = CFrame.new(-429.543518, 71.7699966, 1836.18188, -0.22495985, 0, -0.974368095, 0, 1, 0, .974368095, 0, -0.22495985)
-            PosM = CFrame.new(-728.32672119141, 52.779319763184, 2345.7705078125)
         elseif I == 725 or I <= 774 then
-            Mon = "Mercenary"
             Qdata = 2
             Qname = "Area1Quest"
-            NameMon = "Mercenary"
             PosQ = CFrame.new(-429.543518, 71.7699966, 1836.18188, -0.22495985, 0, -0.974368095, 0, 1, 0, .974368095, 0, -0.22495985)
-            PosM = CFrame.new(-1004.3244018555, 80.158866882324, 1424.6193847656)
         elseif I == 775 or I <= 799 then
-            Mon = "Swan Pirate"
             Qdata = 1
             Qname = "Area2Quest"
-            NameMon = "Swan Pirate"
             PosQ = CFrame.new(638.43811, 71.769989, 918.282898, .139203906, 0, .99026376, 0, 1, 0, -0.99026376, 0, .139203906)
-            PosM = CFrame.new(1068.6643066406, 137.61428833008, 1322.1060791016)
         elseif I == 800 or I <= 874 then
-            Mon = "Factory Staff"
             Qname = "Area2Quest"
-            Qdata = 2
-            NameMon = "Factory Staff"
             PosQ = CFrame.new(632.698608, 73.1055908, 918.666321, -0.0319722369, 8.96074881e-10, -0.999488771, 1.36326533e-10, 1, 8.92172336e-10, .999488771, -1.07732087e-10, -0.0319722369)
-            PosM = CFrame.new(73.078674316406, 81.863441467285, -27.470672607422)
+            Qdata = 2
         elseif I == 875 or I <= 899 then
-            Mon = "Marine Lieutenant"
             Qdata = 1
             Qname = "MarineQuest3"
-            NameMon = "Marine Lieutenant"
             PosQ = CFrame.new(-2440.79639, 71.7140732, -3216.06812, .866007268, 0, .500031412, 0, 1, 0, -0.500031412, 0, .866007268)
-            PosM = CFrame.new(-2821.3723144531, 75.897277832031, -3070.0891113281)
         elseif I == 900 or I <= 949 then
-            Mon = "Marine Captain"
             Qdata = 2
             Qname = "MarineQuest3"
-            NameMon = "Marine Captain"
             PosQ = CFrame.new(-2440.79639, 71.7140732, -3216.06812, .866007268, 0, .500031412, 0, 1, 0, -0.500031412, 0, .866007268)
-            PosM = CFrame.new(-1861.2310791016, 80.176582336426, -3254.6975097656)
         elseif I == 950 or I <= 974 then
-            Mon = "Zombie"
             Qdata = 1
             Qname = "ZombieQuest"
-            NameMon = "Zombie"
             PosQ = CFrame.new(-5497.06152, 47.5923004, -795.237061, -0.29242146, 0, -0.95628953, 0, 1, 0, .95628953, 0, -0.29242146)
-            PosM = CFrame.new(-5657.7768554688, 78.969734191895, -928.68701171875)
         elseif I == 975 or I <= 999 then
-            Mon = "Vampire"
             Qdata = 2
             Qname = "ZombieQuest"
-            NameMon = "Vampire"
             PosQ = CFrame.new(-5497.06152, 47.5923004, -795.237061, -0.29242146, 0, -0.95628953, 0, 1, 0, .95628953, 0, -0.29242146)
-            PosM = CFrame.new(-6037.66796875, 32.184638977051, -1340.6597900391)
         elseif I == 1000 or I <= 1049 then
-            Mon = "Snow Trooper"
             Qdata = 1
             Qname = "SnowMountainQuest"
-            NameMon = "Snow Trooper"
             PosQ = CFrame.new(609.858826, 400.119904, -5372.25928, -0.374604106, 0, .92718488, 0, 1, 0, -0.92718488, 0, -0.374604106)
-            PosM = CFrame.new(549.14733886719, 427.38705444336, -5563.6987304688)
         elseif I == 1050 or I <= 1099 then
-            Mon = "Winter Warrior"
             Qdata = 2
             Qname = "SnowMountainQuest"
-            NameMon = "Winter Warrior"
             PosQ = CFrame.new(609.858826, 400.119904, -5372.25928, -0.374604106, 0, .92718488, 0, 1, 0, -0.92718488, 0, -0.374604106)
-            PosM = CFrame.new(1142.7451171875, 475.63980102539, -5199.4165039062)
         elseif I == 1100 or I <= 1124 then
-            Mon = "Lab Subordinate"
             Qdata = 1
             Qname = "IceSideQuest"
-            NameMon = "Lab Subordinate"
             PosQ = CFrame.new(-6064.06885, 15.2422857, -4902.97852, .453972578, 0, -0.891015649, 0, 1, 0, .891015649, 0, .453972578)
-            PosM = CFrame.new(-5707.4716796875, 15.951709747314, -4513.3920898438)
         elseif I == 1125 or I <= 1174 then
-            Mon = "Horned Warrior"
             Qdata = 2
             Qname = "IceSideQuest"
-            NameMon = "Horned Warrior"
             PosQ = CFrame.new(-6064.06885, 15.2422857, -4902.97852, .453972578, 0, -0.891015649, 0, 1, 0, .891015649, 0, .453972578)
-            PosM = CFrame.new(-6341.3666992188, 15.951770782471, -5723.162109375)
         elseif I == 1175 or I <= 1199 then
-            Mon = "Magma Ninja"
             Qdata = 1
             Qname = "FireSideQuest"
-            NameMon = "Magma Ninja"
             PosQ = CFrame.new(-5428.03174, 15.0622921, -5299.43457, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
-            PosM = CFrame.new(-5449.6728515625, 76.658744812012, -5808.2006835938)
         elseif I == 1200 or I <= 1249 then
-            Mon = "Lava Pirate"
             Qdata = 2
             Qname = "FireSideQuest"
-            NameMon = "Lava Pirate"
             PosQ = CFrame.new(-5428.03174, 15.0622921, -5299.43457, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
-            PosM = CFrame.new(-5213.3315429688, 49.737880706787, -4701.451171875)
         elseif I == 1250 or I <= 1274 then
-            Mon = "Ship Deckhand"
             Qdata = 1
             Qname = "ShipQuest1"
-            NameMon = "Ship Deckhand"
             PosQ = CFrame.new(1037.80127, 125.092171, 32911.6016)
-            PosM = CFrame.new(1212.0111083984, 150.79205322266, 33059.24609375)
         elseif I == 1275 or I <= 1299 then
-            Mon = "Ship Engineer"
             Qdata = 2
             Qname = "ShipQuest1"
-            NameMon = "Ship Engineer"
             PosQ = CFrame.new(1037.80127, 125.092171, 32911.6016)
-            PosM = CFrame.new(919.47863769531, 43.544013977051, 32779.96875)
         elseif I == 1300 or I <= 1324 then
-            Mon = "Ship Steward"
             Qdata = 1
             Qname = "ShipQuest2"
-            NameMon = "Ship Steward"
             PosQ = CFrame.new(968.80957, 125.092171, 33244.125)
-            PosM = CFrame.new(919.43853759766, 129.55599975586, 33436.03515625)
         elseif I == 1325 or I <= 1349 then
-            Mon = "Ship Officer"
             Qdata = 2
             Qname = "ShipQuest2"
-            NameMon = "Ship Officer"
             PosQ = CFrame.new(968.80957, 125.092171, 33244.125)
-            PosM = CFrame.new(1036.0179443359, 181.4390411377, 33315.7265625)
         elseif I == 1350 or I <= 1374 then
-            Mon = "Arctic Warrior"
             Qdata = 1
             Qname = "FrostQuest"
-            NameMon = "Arctic Warrior"
             PosQ = CFrame.new(5667.6582, 26.7997818, -6486.08984, -0.933587909, 0, -0.358349502, 0, 1, 0, .358349502, 0, -0.933587909)
-            PosM = CFrame.new(5966.24609375, 62.970020294189, -6179.3828125)
         elseif I == 1375 or I <= 1424 then
-            Mon = "Snow Lurker"
             Qdata = 2
             Qname = "FrostQuest"
-            NameMon = "Snow Lurker"
             PosQ = CFrame.new(5667.6582, 26.7997818, -6486.08984, -0.933587909, 0, -0.358349502, 0, 1, 0, .358349502, 0, -0.933587909)
-            PosM = CFrame.new(5407.0737304688, 69.194374084473, -6880.8803710938)
         elseif I == 1425 or I <= 1449 then
-            Mon = "Sea Soldier"
             Qdata = 1
             Qname = "ForgottenQuest"
-            NameMon = "Sea Soldier"
             PosQ = CFrame.new(-3054.44458, 235.544281, -10142.8193, .990270376, 0, -0.13915664, 0, 1, 0, .13915664, 0, .990270376)
-            PosM = CFrame.new(-3028.2236328125, 64.674514770508, -9775.4267578125)
         elseif I >= 1450 and I <= 1499 then
-            Mon = "Water Fighter"
             Qdata = 2
             Qname = "ForgottenQuest"
-            NameMon = "Water Fighter"
             PosQ = CFrame.new(-3054.44458, 235.544281, -10142.8193, .990270376, 0, -0.13915664, 0, 1, 0, .13915664, 0, .990270376)
-            PosM = CFrame.new(-3352.9013671875, 285.01556396484, -10534.841796875)
         end
     elseif World3 then
         if I == 1500 or I <= 1524 then
-            Mon = "Pirate Millionaire"
             Qdata = 1
             Qname = "PiratePortQuest"
-            NameMon = "Pirate Millionaire"
             PosQ = CFrame.new(-290.07, 42.90, 5581.59)
-            PosM = CFrame.new(-246.00, 47.31, 5584.10)
         elseif I == 1525 or I <= 1574 then
-            Mon = "Pistol Billionaire"
             Qdata = 2
             Qname = "PiratePortQuest"
-            NameMon = "Pistol Billionaire"
             PosQ = CFrame.new(-290.07, 42.90, 5581.59)
-            PosM = CFrame.new(-187.33, 86.24, 6013.51)
         elseif I == 1575 or I <= 1599 then
-            Mon = "Dragon Crew Warrior"
             Qdata = 1
             Qname = "DragonCrewQuest"
-            NameMon = "Dragon Crew Warrior"
             PosQ = CFrame.new(6737.06055,127.417763,-712.300659,-0.463954359,-7.19574755e-09,0.885859072,7.69187665e-08,1,4.84078626e-08,-0.885859072,9.05982276e-08,-0.463954359)
-            PosM = CFrame.new(6709.76367,52.3442993,-1139.02966,-0.763515472,0,0.645789504,0,1,0,-0.645789504,0,-0.763515472)
         elseif I == 1600 or I <= 1624 then
-            Mon = "Dragon Crew Archer"
             Qdata = 2
             Qname = "DragonCrewQuest"
-            NameMon = "Dragon Crew Archer"
             PosQ = CFrame.new(6737.06055,127.417763,-712.300659,-0.463954359,-7.19574755e-09,0.885859072,7.69187665e-08,1,4.84078626e-08,-0.885859072,9.05982276e-08,-0.463954359)
-            PosM = CFrame.new(6668.76172,481.376923,329.12207,-0.121787429,0,-0.992556155,0,1,0,0.992556155,0,-0.121787429)
         elseif I == 1625 or I <= 1649 then
-            Mon = "Hydra Enforcer"
             Qname = "VenomCrewQuest"
-            Qdata = 1
-            NameMon = "Hydra Enforcer"
             PosQ = CFrame.new(5206.40185546875, 1004.10498046875, 748.3504638671875)
-            PosM = CFrame.new(4547.11523, 1003.10217, 334.194824, 0.388810456, -0, -0.921317935, 0, 1, -0, 0.921317935, 0, 0.388810456)
+            Qdata = 1
         elseif I == 1650 or I <= 1699 then
-            Mon = "Venomous Assailant"
             Qname = "VenomCrewQuest"
-            Qdata = 2
-            NameMon = "Venomous Assailant"
             PosQ = CFrame.new(5206.40185546875, 1004.10498046875, 748.3504638671875)
-            PosM = CFrame.new(4674.92676, 1134.82654, 996.308838, 0.731321394, -0, -0.682033002, 0, 1, -0, 0.682033002, 0, 0.731321394)
+            Qdata = 2
         elseif I == 1700 or I <= 1724 then
-            Mon = "Marine Commodore"
             Qdata = 1
             Qname = "MarineTreeIsland"
-            NameMon = "Marine Commodore"
             PosQ = CFrame.new(2482, 74, -6788)
-            PosM = CFrame.new(2519, 109, -7633)
         elseif I == 1725 or I <= 1774 then
-            Mon = "Marine Rear Admiral"
-            NameMon = "Marine Rear Admiral"
             Qname = "MarineTreeIsland"
-            Qdata = 2
             PosQ = CFrame.new(2482, 74, -6788)
-            PosM = CFrame.new(3722, 169, -7038)
+            Qdata = 2
         elseif I == 1775 or I <= 1799 then
-            Mon = "Fishman Raider"
             Qdata = 1
             Qname = "DeepForestIsland3"
-            NameMon = "Fishman Raider"
             PosQ = CFrame.new(-10581.6563, 330.872955, -8761.18652, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
-            PosM = CFrame.new(-10407.526367188, 331.76263427734, -8368.5166015625)
         elseif I == 1800 or I <= 1824 then
-            Mon = "Fishman Captain"
             Qdata = 2
             Qname = "DeepForestIsland3"
-            NameMon = "Fishman Captain"
             PosQ = CFrame.new(-10581.6563, 330.872955, -8761.18652, -0.882952213, 0, .469463557, 0, 1, 0, -0.469463557, 0, -0.882952213)
-            PosM = CFrame.new(-10994.701171875, 352.38140869141, -9002.1103515625)
         elseif I == 1825 or I <= 1849 then
-            Mon = "Forest Pirate"
             Qdata = 1
             Qname = "DeepForestIsland"
-            NameMon = "Forest Pirate"
             PosQ = CFrame.new(-13234.04, 331.488495, -7625.40137, .707134247, 0, -0.707079291, 0, 1, 0, .707079291, 0, .707134247)
-            PosM = CFrame.new(-13274.478515625, 332.37814331055, -7769.5805664062)
         elseif I == 1850 or I <= 1899 then
-            Mon = "Mythological Pirate"
             Qdata = 2
             Qname = "DeepForestIsland"
-            NameMon = "Mythological Pirate"
             PosQ = CFrame.new(-13234.04, 331.488495, -7625.40137, .707134247, 0, -0.707079291, 0, 1, 0, .707079291, 0, .707134247)
-            PosM = CFrame.new(-13680.607421875, 501.08154296875, -6991.189453125)
         elseif I == 1900 or I <= 1924 then
-            Mon = "Jungle Pirate"
             Qdata = 1
             Qname = "DeepForestIsland2"
-            NameMon = "Jungle Pirate"
             PosQ = CFrame.new(-12680.3818, 389.971039, -9902.01953, -0.0871315002, 0, .996196866, 0, 1, 0, -0.996196866, 0, -0.0871315002)
-            PosM = CFrame.new(-12256.16015625, 331.73828125, -10485.836914062)
         elseif I == 1925 or I <= 1974 then
-            Mon = "Musketeer Pirate"
             Qdata = 2
             Qname = "DeepForestIsland2"
-            NameMon = "Musketeer Pirate"
             PosQ = CFrame.new(-12680.3818, 389.971039, -9902.01953, -0.0871315002, 0, .996196866, 0, 1, 0, -0.996196866, 0, -0.0871315002)
-            PosM = CFrame.new(-13457.904296875, 391.54565429688, -9859.177734375)
         elseif I == 1975 or I <= 1999 then
-            Mon = "Reborn Skeleton"
             Qdata = 1
             Qname = "HauntedQuest1"
-            NameMon = "Reborn Skeleton"
             PosQ = CFrame.new(-9479.2168, 141.215088, 5566.09277, 0, 0, 1, 0, 1, 0, -1, 0, 0)
-            PosM = CFrame.new(-8763.7236328125, 165.72299194336, 6159.8618164062)
         elseif I == 2000 or I <= 2024 then
-            Mon = "Living Zombie"
             Qdata = 2
             Qname = "HauntedQuest1"
-            NameMon = "Living Zombie"
             PosQ = CFrame.new(-9479.2168, 141.215088, 5566.09277, 0, 0, 1, 0, 1, 0, -1, 0, 0)
-            PosM = CFrame.new(-10144.131835938, 138.6266784668, 5838.0888671875)
         elseif I == 2025 or I <= 2049 then
-            Mon = "Demonic Soul"
             Qdata = 1
             Qname = "HauntedQuest2"
-            NameMon = "Demonic Soul"
             PosQ = CFrame.new(-9516.99316, 172.017181, 6078.46533, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-9505.8720703125, 172.10482788086, 6158.9931640625)
         elseif I == 2050 or I <= 2074 then
-            Mon = "Posessed Mummy"
             Qdata = 2
             Qname = "HauntedQuest2"
-            NameMon = "Posessed Mummy"
             PosQ = CFrame.new(-9516.99316, 172.017181, 6078.46533, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-9582.0224609375, 6.2515273094177, 6205.478515625)
         elseif I == 2075 or I <= 2099 then
-            Mon = "Peanut Scout"
             Qdata = 1
             Qname = "NutsIslandQuest"
-            NameMon = "Peanut Scout"
             PosQ = CFrame.new(-2104.3908691406, 38.104167938232, -10194.21875, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-2143.2419433594, 47.721984863281, -10029.995117188)
         elseif I == 2100 or I <= 2124 then
-            Mon = "Peanut President"
             Qdata = 2
             Qname = "NutsIslandQuest"
-            NameMon = "Peanut President"
             PosQ = CFrame.new(-2104.3908691406, 38.104167938232, -10194.21875, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-1859.3540039062, 38.103168487549, -10422.4296875)
         elseif I == 2125 or I <= 2149 then
-            Mon = "Ice Cream Chef"
             Qdata = 1
             Qname = "IceCreamIslandQuest"
-            NameMon = "Ice Cream Chef"
             PosQ = CFrame.new(-820.64825439453, 65.819526672363, -10965.795898438, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-872.24658203125, 65.81957244873, -10919.95703125)
         elseif I == 2150 or I <= 2199 then
-            Mon = "Ice Cream Commander"
             Qdata = 2
             Qname = "IceCreamIslandQuest"
-            NameMon = "Ice Cream Commander"
             PosQ = CFrame.new(-820.64825439453, 65.819526672363, -10965.795898438, 0, 0, -1, 0, 1, 0, 1, 0, 0)
-            PosM = CFrame.new(-558.06103515625, 112.04895782471, -11290.774414062)
         elseif I == 2200 or I <= 2224 then
-            Mon = "Cookie Crafter"
             Qdata = 1
             Qname = "CakeQuest1"
-            NameMon = "Cookie Crafter"
             PosQ = CFrame.new(-2021.32007, 37.7982254, -12028.7295, .957576931, -8.80302053e-08, .288177818, 6.9301187e-08, 1, 7.51931211e-08, -0.288177818, -5.2032135e-08, .957576931)
-            PosM = CFrame.new(-2374.13671875, 37.798263549805, -12125.30859375)
         elseif I == 2225 or I <= 2249 then
-            Mon = "Cake Guard"
             Qdata = 2
             Qname = "CakeQuest1"
-            NameMon = "Cake Guard"
             PosQ = CFrame.new(-2021.32007, 37.7982254, -12028.7295, .957576931, -8.80302053e-08, .288177818, 6.9301187e-08, 1, 7.51931211e-08, -0.288177818, -5.2032135e-08, .957576931)
-            PosM = CFrame.new(-1598.3070068359, 43.773197174072, -12244.581054688)
         elseif I == 2250 or I <= 2274 then
-            Mon = "Baking Staff"
             Qdata = 1
             Qname = "CakeQuest2"
-            NameMon = "Baking Staff"
             PosQ = CFrame.new(-1927.91602, 37.7981339, -12842.5391, -0.96804446, 4.22142143e-08, .250778586, 4.74911062e-08, 1, 1.49904711e-08, -0.250778586, 2.64211941e-08, -0.96804446)
-            PosM = CFrame.new(-1887.8099365234, 77.618507385254, -12998.350585938)
         elseif I == 2275 or I <= 2299 then
-            Mon = "Head Baker"
             Qdata = 2
             Qname = "CakeQuest2"
-            NameMon = "Head Baker"
             PosQ = CFrame.new(-1927.91602, 37.7981339, -12842.5391, -0.96804446, 4.22142143e-08, .250778586, 4.74911062e-08, 1, 1.49904711e-08, -0.250778586, 2.64211941e-08, -0.96804446)
-            PosM = CFrame.new(-2216.1882324219, 82.884521484375, -12869.293945312)
         elseif I == 2300 or I <= 2324 then
-            Mon = "Cocoa Warrior"
             Qdata = 1
             Qname = "ChocQuest1"
-            NameMon = "Cocoa Warrior"
             PosQ = CFrame.new(233.22836303711, 29.876001358032, -12201.233398438)
-            PosM = CFrame.new(-21.553283691406, 80.574996948242, -12352.387695312)
         elseif I == 2325 or I <= 2349 then
-            Mon = "Chocolate Bar Battler"
             Qdata = 2
             Qname = "ChocQuest1"
-            NameMon = "Chocolate Bar Battler"
             PosQ = CFrame.new(233.22836303711, 29.876001358032, -12201.233398438)
-            PosM = CFrame.new(582.59057617188, 77.188095092773, -12463.162109375)
         elseif I == 2350 or I <= 2374 then
-            Mon = "Sweet Thief"
             Qdata = 1
             Qname = "ChocQuest2"
-            NameMon = "Sweet Thief"
             PosQ = CFrame.new(150.50663757324, 30.693693161011, -12774.502929688)
-            PosM = CFrame.new(165.1884765625, 76.058853149414, -12600.836914062)
         elseif I == 2375 or I <= 2399 then
-            Mon = "Candy Rebel"
             Qdata = 2
             Qname = "ChocQuest2"
-            NameMon = "Candy Rebel"
             PosQ = CFrame.new(150.50663757324, 30.693693161011, -12774.502929688)
-            PosM = CFrame.new(134.86563110352, 77.247680664062, -12876.547851562)
         elseif I == 2400 or I <= 2449 then
-            Mon = "Candy Pirate"
             Qdata = 1
             Qname = "CandyQuest1"
-            NameMon = "Candy Pirate"
             PosQ = CFrame.new(-1150.0400390625, 20.378934860229, -14446.334960938)
-            PosM = CFrame.new(-1310.5003662109, 26.016523361206, -14562.404296875)
         elseif I == 2450 or I <= 2474 then
-            Mon = "Isle Outlaw"
             Qdata = 1
             Qname = "TikiQuest1"
-            NameMon = "Isle Outlaw"
             PosQ = CFrame.new(-16548.8164, 55.6059914, -172.8125, .213092566, 0, -0.977032006, 0, 1, 0, .977032006, 0, .213092566)
-            PosM = CFrame.new(-16479.900390625, 226.6117401123, -300.31143188477)
         elseif I == 2475 or I <= 2499 then
-            Mon = "Island Boy"
             Qdata = 2
             Qname = "TikiQuest1"
-            NameMon = "Island Boy"
             PosQ = CFrame.new(-16548.8164, 55.6059914, -172.8125, .213092566, 0, -0.977032006, 0, 1, 0, .977032006, 0, .213092566)
-            PosM = CFrame.new(-16849.396484375, 192.86505126953, -150.78532409668)
         elseif I == 2500 or I <= 2524 then
-            Mon = "Sun-kissed Warrior"
             Qdata = 1
             Qname = "TikiQuest2"
-            NameMon = "kissed Warrior"
-            PosM = CFrame.new(-16347, 64, 984)
             PosQ = CFrame.new(-16538, 55, 1049)
         elseif I == 2525 or I <= 2550 then
-            Mon = "Isle Champion"
             Qdata = 2
             Qname = "TikiQuest2"
-            NameMon = "Isle Champion"
             PosQ = CFrame.new(-16541.0215, 57.3082275, 1051.46118, .0410757065, 0, -0.999156058, 0, 1, 0, .999156058, 0, .0410757065)
-            PosM = CFrame.new(-16602.1015625, 130.38734436035, 1087.2456054688)
         elseif I == 2551 or I <= 2574 then
-            Mon = "Serpent Hunter"
             Qdata = 1
             Qname = "TikiQuest3"
-            NameMon = "Serpent Hunter"
             PosQ = CFrame.new(-16668.03,105.32,1568.60)
-            PosM = CFrame.new(-16645.64,163.09,1352.87)
         elseif I >= 2575 and I <= 2599 then 
-            Mon = "Skull Slayer"
             Qdata = 2
             Qname = "TikiQuest3"
-            NameMon = "Skull Slayer"
             PosQ = CFrame.new(-16668.03,105.32,1568.60)
-            PosM = CFrame.new(-16709.49,419.68,1751.09)
         elseif I >= 2600 and I <= 2624 then
-            Mon = "Reef Bandit"
             Qdata = 1
             Qname = "SubmergedQuest1"
-            NameMon = "Reef Bandit"
             PosQ = CFrame.new(10778.875, -2087.72437, 9265.18359, 0.934615612, -9.33109447e-08, -0.355659455, 9.17655143e-08, 1, -2.12154276e-08, 0.355659455, -1.28090019e-08, 0.934615612)
-            PosM = CFrame.new(11019.1318, -2146.06812, 9342.3916, -0.719955266, -1.74275385e-08, 0.69402045, 5.76556367e-08, 1, 8.49211546e-08, -0.69402045, 1.01153624e-07, -0.719955266)
         elseif I >= 2625 and I <= 2649 then
-            Mon = "Coral Pirate"
             Qdata = 2
             Qname = "SubmergedQuest1"
-            NameMon = "Coral Pirate"
             PosQ = CFrame.new(10778.875, -2087.72437, 9265.18359, 0.934615612, -9.33109447e-08, -0.355659455, 9.17655143e-08, 1, -2.12154276e-08, 0.355659455, -1.28090019e-08, 0.934615612)
-            PosM = CFrame.new(10808.6006, -2030.36145, 9364.2334, -0.775185347, -0.0359364748, 0.6307109, 0.0615428537, 0.989336014, 0.132010356, -0.628728986, 0.141148239, -0.764707148)
         elseif I >= 2650 and I <= 2674 then
-            Mon = "Sea Chanter"
             Qdata = 1
             Qname = "SubmergedQuest2"
-            NameMon = "Sea Chanter"
             PosQ = CFrame.new(10880.6855, -2086.20044, 10032.624, -0.321384728, 9.87648434e-08, -0.946948707, 7.13271007e-08, 1, 8.00902953e-08, 0.946948707, -4.18033075e-08, -0.321384728)
-            PosM = CFrame.new(10671.2715, -2057.59155, 10047.2588, -0.846484065, -3.11045447e-08, 0.532414079, -5.55383117e-08, 1, -2.98785316e-08, -0.532414079, -5.48610757e-08, -0.846484065)
         elseif I >= 2675 and I <= 2699 then
-            Mon = "Ocean Prophet"
             Qdata = 2
             Qname = "SubmergedQuest2"
-            NameMon = "Ocean Prophet"
             PosQ = CFrame.new(10880.6855, -2086.20044, 10032.624, -0.321384728, 9.87648434e-08, -0.946948707, 7.13271007e-08, 1, 8.00902953e-08, 0.946948707, -4.18033075e-08, -0.321384728)
-            PosM = CFrame.new(11008.5195, -2007.72839, 10223.0791, -0.688615739, 2.33523378e-09, -0.725126445, 2.99292546e-09, 1, 3.78221315e-10, 0.725126445, -1.90980032e-09, -0.688615739)
         elseif I >= 2700 and I <= 2724 then
-            Mon = "High Disciple"
             Qdata = 1
             Qname = "SubmergedQuest3"
-            NameMon = "High Disciple"
             PosQ = CFrame.new(9640.08789, -1992.44507, 9613.65234, -0.957327187, 4.11991223e-08, 0.289006323, 1.5775445e-08, 1, -9.02985846e-08, -0.289006323, -8.18860855e-08, -0.957327187)
-            PosM = CFrame.new(9750.41602, -1966.93884, 9753.36035, -0.749824047, 5.57797613e-08, -0.661637306, 2.03500754e-08, 1, 6.1243199e-08, 0.661637306, 3.24572511e-08, -0.749824047)
         elseif I >= 2725 then
-            Mon = "Grand Devotee"
             Qdata = 2
             Qname = "SubmergedQuest3"
-            NameMon = "Grand Devotee"
             PosQ = CFrame.new(9640.08789, -1992.44507, 9613.65234, -0.957327187, 4.11991223e-08, 0.289006323, 1.5775445e-08, 1, -9.02985846e-08, -0.289006323, -8.18860855e-08, -0.957327187)
-            PosM = CFrame.new(9611.70508, -1993.47119, 9882.68848, -0.591375351, 4.14332426e-08, -0.806396425, 4.73774868e-08, 1, 1.66361875e-08, 0.806396425, -2.83668058e-08, -0.591375351)
         end
     end
     
@@ -4215,18 +3048,16 @@ local function QuestNeta()
         altData = DualQuestPairings[Qname]
     end
     
-    return Mon, Qdata, Qname, NameMon, PosM, PosQ, altData
+    return Qdata, Qname, PosQ, altData
 end
 
 --// ================= TELEPORT & SUBMERGED =================
 local function TweenToPos(targetCF, speed)
     local root = getRoot()
     if not root then return end
-    local spd = speed or getgenv().FlySpeed
-    -- Nếu TelePorto bật và tele trung gian được spawn → _tp sẽ được gọi bên trong async
-    if doIntermediateTeleport(targetCF, spd) then return end
-    -- Không có tele trung gian → tween thẳng
-    _tp(targetCF, spd)
+    -- Đã xóa tele trung gian (Portal/Tiki/Reset) — tween thẳng đến đích.
+    -- Tốc độ cố định 160 stud/s bên trong _tp, tham số speed không còn dùng.
+    _tp(targetCF)
 end
 
 --------------------------------------------------------------------
@@ -4234,9 +3065,7 @@ end
 --------------------------------------------------------------------
 local function TweenToFixedPos(_, targetCF, speed)
     if not targetCF then return end
-    local spd = speed or getgenv().FlySpeed
-    if doIntermediateTeleport(targetCF, spd) then return end
-    _tp(targetCF, spd)
+    _tp(targetCF)
 end
 
 --------------------------------------------------------------------
@@ -4306,7 +3135,6 @@ local function TeleportToSubmerged(finalPos)
 
         -- Bước 2: Dừng tween rồi kích hoạt TravelToSubmergedIsland ngay
         if currentTween then pcall(function() currentTween:Cancel() end); currentTween = nil end
-        currentTweenSpeed = 0
 
         local invoked = false
         pcall(function()
@@ -4459,7 +3287,7 @@ function startLevelFarm()
     local _spawnLastMon   = nil  -- tên mob lần trước để rebuild khi đổi khu
     local _spawnArrivedAt = 0    -- tick() khi đến điểm spawn (để delay trước khi đổi điểm)
     local _spawnRefreshAt = 0    -- tick() lần quét lại EnemySpawns gần nhất (check liên tục)
-    local _questArrivedAt = 0    -- tick() khi đến gần PosQ (để delay 2s trước khi nhận quest)
+    local _questArrivedAt = 0    -- tick() khi đến gần NPC quest (để delay 1.2s trước khi nhận quest)
 
     levelFarmConn = RunService.Heartbeat:Connect(function(dt)
         if not getgenv().FarmLevel then return end
@@ -4468,11 +3296,22 @@ function startLevelFarm()
             local root = getRoot()
             if not root then return end
             
-            local Mon, Qdata, Qname, NameMon, PosM, PosQ, altData = QuestNeta()
-            if not Mon then return end
+            local Qdata, Qname, PosQ, altData = QuestNeta()
+            if not Qname then return end
+
+            -- Tra tên NPC giao quest theo Qname, rồi quét workspace.NPCs
+            -- (logic check NPC có sẵn) để lấy CFrame thật của NPC đó trong
+            -- server hiện tại (chính xác hơn PosQ, theo đúng vị trí NPC đang
+            -- đứng). Nếu server/map chưa load NPC (npcCF = nil), dùng PosQ
+            -- cố định để tween TẠM tới gần khu vực đó; ngay khi script check
+            -- thấy NPC thật (npcCF khác nil) thì tự hủy tween theo PosQ và
+            -- chuyển hẳn sang tween chính xác theo NPC.
+            local npcName = QuestNPCNames[Qname]
+            local npcCF   = GetQuestNPCCFrame(npcName)
             
-            local questUI      = player.PlayerGui.Main.Quest
-            local questVisible = questUI.Visible
+            -- [FIX UI QUEST MỚI] Check cả UI cũ (Main.Quest) lẫn UI mới
+            -- (TrackedQuestFrame.Frame) để biết đã có quest hay chưa.
+            local questVisible = HasActiveQuestUI()
 
             ------------------------------------------------------------
             -- PHÁT HIỆN HOÀN THÀNH QUEST → flip DualQuestNext
@@ -4491,68 +3330,81 @@ function startLevelFarm()
             -- Submerged teleport (W3 lv >= 2600)
             -- Dùng task.spawn để Heartbeat callback không bị block; guard
             -- _submergedRunning bên trong hàm ngăn chạy song song.
-            if World3 and player.Data.Level.Value >= 2600 and (PosQ.Position - root.Position).Magnitude > 10000 then
+            if World3 and player.Data.Level.Value >= 2600 and PosQ and (PosQ.Position - root.Position).Magnitude > 10000 then
                 task.spawn(TeleportToSubmerged)
                 return
             end
             
             ------------------------------------------------------------
-            -- NHẬN QUEST (khi questUI không hiển thị = chưa có quest)
+            -- NHẬN QUEST: CHỈ khi CHƯA có quest nào trên UI (cũ hoặc mới).
+            -- Nếu đã có UI quest rồi thì KHÔNG gọi nhận quest nữa (tránh spam
+            -- StartQuest gây lỗi/hủy quest đang farm dở khi UI update chậm).
             ------------------------------------------------------------
             if not questVisible then
                 if not getgenv().BypassAcceptQuest then
-                    TweenToPos(PosQ, getgenv().FlySpeed)
-                    if (root.Position - PosQ.Position).Magnitude > 20 then
-                        _questArrivedAt = 0  -- chưa đến → reset timer
+                    if npcCF then
+                        -- Đã thấy NPC thật (workspace.NPCs) → tween chính xác
+                        -- theo NPC, không còn dùng PosQ nữa.
+                        TweenToPos(npcCF, getgenv().FlySpeed)
+                        if (root.Position - npcCF.Position).Magnitude > 5 then
+                            _questArrivedAt = 0  -- chưa vào trong bán kính 5 stud → reset timer
+                            return
+                        end
+                    elseif PosQ then
+                        -- Chưa thấy NPC (map/NPC chưa load từ xa) → tween TẠM
+                        -- tới PosQ cố định để tiến lại gần; heartbeat sau sẽ
+                        -- tự check lại npcCF và chuyển sang tween NPC ngay khi
+                        -- NPC xuất hiện. Không đếm delay nhận quest ở bước này
+                        -- vì PosQ chỉ là vị trí gần đúng, chưa chắc đã đủ gần
+                        -- NPC thật để bấm nhận quest.
+                        TweenToPos(PosQ, getgenv().FlySpeed)
+                        _questArrivedAt = 0
+                        return
+                    else
+                        _questArrivedAt = 0
                         return
                     end
                 end
-                -- Đến nơi (hoặc bypass) → bắt đầu đếm delay 2s trước khi nhận quest
+                -- Đến trong 5 stud quanh NPC (hoặc bypass) → đếm delay 1.2s trước khi nhận quest
                 if _questArrivedAt == 0 then
                     _questArrivedAt = tick()
-                elseif tick() - _questArrivedAt >= 2 then
+                elseif tick() - _questArrivedAt >= 1.2 then
                     _questArrivedAt = 0
-                    -- Xác định Qdata cần nhận dựa vào DualQuestNext
-                    local qdataToAccept = Qdata  -- mặc định: quest cao
-                    if altData then
-                        local nextTarget = getgenv().DualQuestNext[Qname]
-                        if nextTarget == 1 then
-                            qdataToAccept = altData.Qdata  -- nhận quest thấp
+                    -- Check lại 1 lần nữa ngay trước khi bắn remote, phòng trường
+                    -- hợp UI vừa kịp load quest trong lúc đang đếm delay 1.2s
+                    if not HasActiveQuestUI() then
+                        -- Xác định Qdata cần nhận dựa vào DualQuestNext
+                        local qdataToAccept = Qdata  -- mặc định: quest cao
+                        if altData then
+                            local nextTarget = getgenv().DualQuestNext[Qname]
+                            if nextTarget == 1 then
+                                qdataToAccept = altData.Qdata  -- nhận quest thấp
+                            end
                         end
+                        pcall(function()
+                            ReplicatedStorage.Remotes.CommF_:InvokeServer("StartQuest", Qname, qdataToAccept)
+                        end)
+                        -- Mỗi khi vừa nhận quest mới → quét lại pos spawn cả world, merge vào data đã lưu
+                        pcall(ScanWorldSpawns)
+                        task.wait(0.5)
                     end
-                    pcall(function()
-                        ReplicatedStorage.Remotes.CommF_:InvokeServer("StartQuest", Qname, qdataToAccept)
-                    end)
-                    -- Mỗi khi vừa nhận quest mới → quét lại pos spawn cả world, merge vào data đã lưu
-                    pcall(ScanWorldSpawns)
-                    task.wait(0.5)
                 end
                 return
             end
             
             ------------------------------------------------------------
-            -- QUEST ĐANG CHẠY: xác định mob mục tiêu từ tiêu đề UI thực tế
-            -- Đọc từ UI thay vì từ biến trạng thái → không bao giờ desync
+            -- ĐÃ CÓ QUEST: xác định tên mob mục tiêu bằng cách ĐỌC UI THẬT
+            -- (Main.Quest.Container.QuestTitle / QuestReward hoặc
+            -- TrackedQuestFrame.Frame.header) — KHÔNG còn phụ thuộc vào
+            -- Mon/NameMon cứng trong data quest như trước.
             ------------------------------------------------------------
-            local QuestTitle  = questUI.Container.QuestTitle.Title.Text
-            local activeMon   = Mon
-            local activeNameMon = NameMon
-            local activePosM  = PosM
-
-            if altData and string.find(QuestTitle, altData.NameMon) then
-                -- Quest thấp (altData) đang hoạt động
-                activeMon       = altData.Mon
-                activeNameMon   = altData.NameMon
-                activePosM      = altData.PosM
-            elseif not string.find(QuestTitle, NameMon) then
-                -- Tiêu đề không khớp quest cao lẫn quest thấp → sai quest, hủy
-                if not (altData and string.find(QuestTitle, altData.NameMon)) then
-                    pcall(function()
-                        ReplicatedStorage.Remotes.CommF_:InvokeServer("AbandonQuest")
-                    end)
-                    task.wait(0.5)
-                    return
-                end
+            local activeMon = DetectQuestMobName()
+            if not activeMon then
+                -- Chưa detect được tên mob từ UI (vd UI chưa kịp render text)
+                -- → không còn PosM để bay tạm; chỉ chờ Heartbeat sau detect lại
+                -- (script đã dùng spawn pos thật để tìm/chờ mob nên không cần
+                -- điểm khu vực gần đúng nữa).
+                return
             end
             
             -- === FARM MOB ===
@@ -4581,26 +3433,41 @@ function startLevelFarm()
                     local oldCount   = _spawnPoints and #_spawnPoints or 0
                     _spawnLastMon   = activeMon
                     _spawnRefreshAt = tick()
-                    -- Reset index khi đổi mob hoặc list cũ rỗng
-                    if monChanged or oldCount == 0 then
-                        _spawnIndex = 1
-                    end
                     _spawnArrivedAt = 0
 
                     -- Hết mob → quét lại pos spawn cả world (merge thêm pos mới nếu có,
                     -- KHÔNG xóa data cũ), sau đó lục trong data đã lưu từ lúc script
                     -- chạy để lấy toàn bộ pos từng thấy của đúng tên mob quest.
-                    -- KHÔNG fallback về PosM — chỉ dùng đúng pos spawn thật đã quét được.
                     pcall(ScanWorldSpawns)
                     _spawnPoints = getgenv().WorldSpawnData[activeMon] or {}
+
+                    -- Sắp xếp lại danh sách theo khoảng cách gần nhất trước
+                    -- (tính từ vị trí hiện tại) mỗi khi rebuild, để pos khởi
+                    -- đầu của vòng tuần tra luôn là pos gần nhất — không phải
+                    -- pos đầu tiên theo thứ tự quét cũ.
+                    if root and #_spawnPoints > 1 then
+                        local originPos = root.Position
+                        table.sort(_spawnPoints, function(a, b)
+                            return (a.Position - originPos).Magnitude < (b.Position - originPos).Magnitude
+                        end)
+                    end
                     print(("[WorldSpawn] mob=%s -> %d pos đã lưu"):format(tostring(activeMon), #_spawnPoints))
 
+                    -- Reset về pos gần nhất (index 1 sau khi sort) khi đổi mob
+                    -- hoặc list cũ rỗng; nếu chỉ merge thêm pos mới thì giữ
+                    -- nguyên index đang tuần tra.
+                    if monChanged or oldCount == 0 then
+                        _spawnIndex = 1
+                    end
                     if _spawnIndex > #_spawnPoints then
                         _spawnIndex = 1
                     end
                 end
 
-                -- Mỗi Heartbeat khi không có mob: tween tới spawn hiện tại, xoay vòng liên tục
+                -- Mỗi Heartbeat khi không có mob: tween tới spawn hiện tại
+                -- (bắt đầu từ pos gần nhất) -> đến nơi delay 0.3s -> pos tiếp
+                -- theo -> lặp lại đến khi hết pos -> quay lại pos gần nhất lúc
+                -- mới bắt đầu (index 1) -> tiếp tục lặp cả vòng đến khi mob spawn.
                 if _spawnPoints and #_spawnPoints > 0 then
                     local targetSP = _spawnPoints[_spawnIndex]
                     TweenToPos(targetSP, getgenv().FlySpeed)
@@ -4823,14 +3690,15 @@ function startBoneFarm()
         if not getgenv().FarmBone then return end
         local root = getRoot()
         if not root then return end
-        local questUI = player.PlayerGui.Main.Quest
         local bone = GetNearestEnemy(BonesTable)
         
         getgenv().CurrentTargetMob = bone
     
         if bone then
             bonePatrol.reset() -- có mob lại -> lần hết mob kế tiếp patrol lại từ pos đầu
-            if getgenv().AcceptQuestC and not questUI.Visible then
+            -- [FIX UI QUEST MỚI] Check cả UI cũ lẫn UI mới: đã có quest UI rồi
+            -- thì KHÔNG gọi nhận quest nữa, tránh spam StartQuest.
+            if getgenv().AcceptQuestC and not HasActiveQuestUI() then
                 if not getgenv().BypassAcceptQuest then
                     TweenToFixedPos(root, BoneQuestPos, getgenv().FlySpeed)
                     if (root.Position - BoneQuestPos.Position).Magnitude > 50 then return end
@@ -4893,7 +3761,6 @@ function startKataFarm()
         if not getgenv().FarmKata then return end
         local root = getRoot()
         if not root then return end
-        local questUI = player.PlayerGui.Main.Quest
         local cakeMap = workspace.Map:FindFirstChild("CakeLoaf")
         local bigMirror = cakeMap and cakeMap:FindFirstChild("BigMirror")
         
@@ -4953,7 +3820,8 @@ function startKataFarm()
             
             if cakeMob then
                 kataPatrol.reset() -- có mob lại -> lần hết mob kế tiếp patrol lại từ pos đầu
-                if getgenv().AcceptQuestC and not questUI.Visible then
+                -- [FIX UI QUEST MỚI] Check cả UI cũ lẫn UI mới trước khi nhận quest.
+                if getgenv().AcceptQuestC and not HasActiveQuestUI() then
                     if not getgenv().BypassAcceptQuest then
                         TweenToFixedPos(root, CakeQuestPos, getgenv().FlySpeed)
                         if (root.Position - CakeQuestPos.Position).Magnitude > 50 then return end
@@ -5734,20 +4602,16 @@ getgenv().NormalPaused  = false  -- Normal farm đang bị tạm dừng do elite
 -- HÀM TIỆN ÍCH: KIỂM TRA ELITE CÓ SẴN KHÔNG
 --------------------------------------------------------------------
 -- Trả về true nếu có elite trong ReplicatedStorage HOẶC đang có quest elite
+-- [FIX UI QUEST MỚI] Đọc text quest từ CẢ UI cũ (Main.Quest) lẫn UI mới
+-- (TrackedQuestFrame.Frame.header) thay vì chỉ đọc mỗi UI cũ như trước.
 local function IsEliteAvailable()
     -- Cách 1: Elite đã spawn → xuất hiện trong ReplicatedStorage
     if GetEliteReplicatedPart() then return true end
-    -- Cách 2: Quest elite đang active
-    local questUI = player.PlayerGui:FindFirstChild("Main")
-    if questUI then
-        local questPanel = questUI:FindFirstChild("Quest")
-        if questPanel and questPanel.Visible then
-            local titleFrame = questPanel:FindFirstChild("Container")
-            local questTitleObj = titleFrame and titleFrame:FindFirstChild("QuestTitle")
-            local titleLabel = questTitleObj and questTitleObj:FindFirstChild("Title")
-            local titleText = titleLabel and titleLabel.Text or ""
-            if IsEliteName(titleText) then return true end
-        end
+    -- Cách 2: Quest elite đang active (check bằng UI thật, gộp cả 2 nguồn UI)
+    if HasActiveQuestUI() then
+        local texts = GetQuestRawText()
+        local combined = table.concat(texts, " | ")
+        if IsEliteName(combined) then return true end
     end
     return false
 end
@@ -5796,16 +4660,10 @@ local function startEliteHunt()
             local root = getRoot()
             if not root then return end
 
-            local questUI = player.PlayerGui:FindFirstChild("Main")
-            if not questUI then return end
-            local questPanel = questUI:FindFirstChild("Quest")
-            if not questPanel then return end
-
-            if questPanel.Visible then
-                local titleFrame = questPanel:FindFirstChild("Container")
-                local questTitleObj = titleFrame and titleFrame:FindFirstChild("QuestTitle")
-                local titleLabel = questTitleObj and questTitleObj:FindFirstChild("Title")
-                local titleText = titleLabel and titleLabel.Text or ""
+            -- [FIX UI QUEST MỚI] Check UI quest gộp cả 2 nguồn (cũ + mới)
+            if HasActiveQuestUI() then
+                local texts = GetQuestRawText()
+                local titleText = table.concat(texts, " | ")
 
                 if IsEliteName(titleText) then
                     -- Đang có quest elite → farm
@@ -7655,12 +6513,15 @@ for _, v in ipairs(currentIslandList) do
     islandMap[v.Name or v.name] = v
 end
 
--- Xây dựng NPCList từ ReplicatedStorage.NPCs
+-- Xây dựng NPCList từ workspace.NPCs
 local NPCList = {}
 local NPClist = ""
 pcall(function()
-    for _, v in pairs(ReplicatedStorage.NPCs:GetChildren()) do
-        table.insert(NPCList, v.Name)
+    local npcFolder = workspace:FindFirstChild("NPCs")
+    if npcFolder then
+        for _, v in pairs(npcFolder:GetChildren()) do
+            table.insert(NPCList, v.Name)
+        end
     end
     table.sort(NPCList)
 end)
@@ -7785,7 +6646,7 @@ local TravelIslandToggle = Tabs.Travel:CreateToggle("TravelToIsland", {
                 end
 
                 local targetCF = CFrame.new(data.pos + Vector3.new(0, 5, 0))
-                -- TweenToPos tự xử lý tele trung gian nếu TelePorto bật
+                -- TweenToPos tween thẳng tới đích (đã bỏ tele trung gian)
                 TweenToPos(targetCF, getgenv().FlySpeed or 160)
 
                 -- Bắt buộc tween tới đích, không timeout
@@ -7857,12 +6718,11 @@ spawn(function()
     while wait(Sec) do
         if getgenv().TPNpc then
             pcall(function()
-                for _, v in pairs(ReplicatedStorage.NPCs:GetChildren()) do
-                    if v.Name == selectedNPC and v:FindFirstChild("HumanoidRootPart") then
-                        -- TweenToPos tự xử lý tele trung gian nếu TelePorto bật
-                        TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 160)
-                        break
-                    end
+                local npcFolder = workspace:FindFirstChild("NPCs")
+                local v = npcFolder and npcFolder:FindFirstChild(selectedNPC)
+                if v and v:FindFirstChild("HumanoidRootPart") then
+                    -- TweenToPos tween thẳng tới đích (đã bỏ tele trung gian)
+                    TweenToPos(v.HumanoidRootPart.CFrame, getgenv().FlySpeed or 160)
                 end
             end)
         end
