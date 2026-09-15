@@ -455,8 +455,11 @@ end
 
 -- Monkey-patch CreateToggle / CreateDropdown / CreateSlider trên tất cả tab:
 --   1) Trước khi tạo: nếu Settings đã có giá trị cho key này thì dùng làm
---      Default (Fluent tự fire Callback với Default lúc tạo).
---   2) Sau khi tạo: OnChanged sẽ ghi Settings[Key] + lưu file NGAY LẬP TỨC.
+--      Default (để UI hiển thị đúng item/giá trị đã lưu).
+--   2) Với Dropdown được khôi phục: tự gọi lại Callback gốc bằng giá trị đã
+--      lưu (Fluent không tự fire lại Callback ở bước này) để logic thật của
+--      script đồng bộ với item đang hiển thị, không cần chọn lại thủ công.
+--   3) Sau khi tạo: OnChanged sẽ ghi Settings[Key] + lưu file NGAY LẬP TỨC.
 local function _PatchTab(tab, tabKey)
     Elements[tabKey] = Elements[tabKey] or {}
     for _, methodName in ipairs({"CreateToggle", "CreateDropdown", "CreateSlider"}) do
@@ -468,8 +471,13 @@ local function _PatchTab(tab, tabKey)
             tab[methodName] = function(self, id, opts)
                 opts = opts or {}
                 local Key = tabKey .. "_" .. tostring(id)
+                -- Lưu lại Default GỐC trong code TRƯỚC khi bị ghi đè bởi giá trị
+                -- đã lưu (nếu không, nút "Reset to Default" sẽ chỉ reset về đúng
+                -- giá trị đang lưu, tức là không reset gì cả).
+                local trueDefault = opts.Default
+                local isRestored = Settings[Key] ~= nil -- đã từng lưu giá trị từ trước
 
-                if Settings[Key] == nil then
+                if not isRestored then
                     Settings[Key] = GetDefault(Mode, opts.Default)
                 else
                     local decoded = _DecodeValue(Settings[Key])
@@ -483,8 +491,17 @@ local function _PatchTab(tab, tabKey)
                 Elements[tabKey][id] = el
                 UIRegistry[#UIRegistry + 1] = {
                     TabKey = tabKey, Id = id, Mode = Mode, Key = Key,
-                    OriginalDefault = opts.Default,
+                    OriginalDefault = trueDefault,
                 }
+
+                -- FIX save/load: Fluent chỉ cập nhật UI hiển thị theo giá trị
+                -- đã khôi phục, KHÔNG tự fire lại Callback gốc => biến thật trong
+                -- script (VD: _G.ChooseWP, getgenv().FarmMode) vẫn ở item đầu
+                -- tiên cho tới khi người dùng bấm chọn lại thủ công. Tự gọi lại
+                -- Callback ngay sau khi tạo để đồng bộ trạng thái thật với UI.
+                if isRestored and Mode == "Dropdown" and type(opts.Callback) == "function" then
+                    task.spawn(opts.Callback, opts.Default)
+                end
 
                 if el and el.OnChanged then
                     el:OnChanged(function(Value)
@@ -1139,6 +1156,33 @@ local Weapon_Config = Tabs.Settings:CreateDropdown("Weapon_Config", {
 
 _G.ChooseWP = "Melee"
 _G.SelectWeapon = nil
+
+--------------------------------------------------------------------
+-- FARM MODE + FARM DISTANCE
+-- Không set Default cứng ở đây: lần đầu chạy sẽ "trống" (GetDefault tự lo),
+-- và GIÁ TRỊ NGƯỜI DÙNG CHỌN LẦN GẦN NHẤT chính là Default cho các lần sau
+-- (không còn bug: đã từng chọn Orbit/Star nhưng lần sau script tự nhảy lại Up).
+--------------------------------------------------------------------
+Tabs.Settings:CreateDropdown("Farm_Mode", {
+    Title = "Farm Mode",
+    Description = "Up: đứng trên đầu mob. Orbit: bay vòng quanh mob. Star: nhảy ngẫu nhiên 2 bên mob.",
+    Values = {"Up", "Orbit", "Star"},
+    Multi = false,
+    Callback = function(v)
+        getgenv().FarmMode = v
+    end,
+})
+
+Tabs.Settings:CreateSlider("Farm_Distance", {
+    Title = "Farm Distance",
+    Description = "Up: độ cao đứng trên mob. Orbit/Star: bán kính bay quanh mob.",
+    Min = 5,
+    Max = 100,
+    Rounding = 0,
+    Callback = function(v)
+        getgenv().FarmDistance = v
+    end,
+})
 
 -- ===== REMOVE CARD-RELATED GLOBALS (AutoPickCard features removed) =====
 
@@ -1993,8 +2037,54 @@ end
 --     look pos: pos farm = Y look pos + offset.
 --   • Không bring / không có mob để bring -> đứng trên đầu mob farm
 --     như bình thường: pos farm = Y mob farm + offset.
--- Offset: weapon thường = 30, weapon fruit (Blox Fruit) = 20.
 --------------------------------------------------------------------
+-- FARM MODE (Up / Orbit / Star) — kiểu đứng khi farm mob
+--   Up    : đứng thẳng trên đầu mob theo trục Y — độ cao = slider Farm Distance
+--   Orbit : bay vòng tròn liên tục quanh mob — bán kính = slider Farm Distance
+--   Star  : nhảy ngẫu nhiên giữa các trục X/Z quanh mob (đổi hướng mỗi 0.4s)
+--           — bán kính = slider Farm Distance
+-- Cả 2 giá trị (FarmMode, FarmDistance) đều lấy từ getgenv() nên hoạt động
+-- chung cho MỌI loại farm đang gọi GetFarmCFrame (Level, Bone, Kata, Aura,
+-- SelectMob, Dungeon, EliteHunt, ...).
+--------------------------------------------------------------------
+getgenv().FarmMode = getgenv().FarmMode or "Up"
+getgenv().FarmDistance = getgenv().FarmDistance or 30 -- fallback nội bộ, KHÔNG phải Default của UI
+
+local _farmOrbitAngle    = 0
+local _farmOrbitLastTick = tick()
+local _farmStarAxis      = nil
+local _farmStarSetAt     = 0
+
+local function GetFarmModeOffset()
+    local mode = getgenv().FarmMode or "Up"
+    local dist = tonumber(getgenv().FarmDistance) or 30
+    if dist < 5 then dist = 5 end -- không cho đứng sát/chồng lên mob
+
+    if mode == "Orbit" then
+        local now = tick()
+        local dt = now - _farmOrbitLastTick
+        if dt <= 0 or dt > 0.5 then dt = 0 end -- tránh góc nhảy khi loop bị gián đoạn
+        _farmOrbitLastTick = now
+        _farmOrbitAngle = _farmOrbitAngle + 3.5 * dt
+        return Vector3.new(math.cos(_farmOrbitAngle) * dist, 8, math.sin(_farmOrbitAngle) * dist)
+
+    elseif mode == "Star" then
+        local now = tick()
+        if not _farmStarAxis or (now - _farmStarSetAt) > 0.4 then
+            local useX = math.random() <= 0.5
+            local sign = (math.random() <= 0.5) and 1 or -1
+            _farmStarAxis = useX
+                and Vector3.new(dist * sign, 8, 0)
+                or Vector3.new(0, 8, dist * sign)
+            _farmStarSetAt = now
+        end
+        return _farmStarAxis
+    end
+
+    -- "Up" (mặc định): đứng thẳng trên đầu mob, không lệch X/Z
+    return Vector3.new(0, dist, 0)
+end
+
 local function GetFarmCFrame(mob)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return nil end
 
@@ -2005,13 +2095,7 @@ local function GetFarmCFrame(mob)
         basePos = mob.HumanoidRootPart.Position
     end
 
-    local settings = getgenv().Settings or {}
-    local weapon = settings["Select Weapon"] or "Melee"
-
-    local yOffset = (weapon == "Blox Fruit") and 20 or 30
-    local playerY = basePos.Y + yOffset
-
-    return CFrame.new(Vector3.new(basePos.X, playerY, basePos.Z))
+    return CFrame.new(basePos + GetFarmModeOffset())
 end
 
 -- Bring/Farm cycle:
