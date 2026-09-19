@@ -1176,8 +1176,8 @@ Tabs.Settings:CreateDropdown("Farm_Mode", {
 Tabs.Settings:CreateSlider("Farm_Distance", {
     Title = "Farm Distance",
     Description = "Up: độ cao đứng trên mob. Orbit/Star: bán kính bay quanh mob.",
-    Min = 15,
-    Max = 1000,
+    Min = 5,
+    Max = 100,
     Rounding = 0,
     Callback = function(v)
         getgenv().FarmDistance = v
@@ -1817,8 +1817,8 @@ local SKY_LOW_Y       = 2000  -- Y < ngưỡng này = đang/muốn ở phía Sky
 -- kích hoạt tele trung gian. Đổi sang phân vùng theo trục X (giống Sky) để bất
 -- kỳ đích/vị trí nào có X > ngưỡng đều tính là "trong thành phố", X <= ngưỡng
 -- là "ở ngoài" — đúng bản chất 1 vùng rộng thay vì 1 điểm nhỏ.
-local UNDERWATER_ZONE_X = 5000 -- X > ngưỡng này = trong UnderwaterCity; X <= ngưỡng = ở ngoài (phía Whirlpool)
-local GATE_TIMEOUT    = 9999    -- giây - nếu kẹt ở 1 cổng quá lâu (cổng không tự kích
+local UNDERWATER_ZONE_X = 30000 -- X > ngưỡng này = trong UnderwaterCity; X <= ngưỡng = ở ngoài (phía Whirlpool)
+local GATE_TIMEOUT    = 12    -- giây - nếu kẹt ở 1 cổng quá lâu (cổng không tự kích
                                -- hoạt được) thì bỏ qua, bay thẳng tới đích thật để
                                -- tránh đứng yên vĩnh viễn
 
@@ -3968,12 +3968,11 @@ function stopSelectMobFarm()
 end
 
 --// ================= AUTO FARM MAGNET TOKEN (Stack Farming tab) =================
--- Farm BẤT KỲ mob nào (không phân biệt loại gốc: Monkey, Pirate, ...) có
--- NHÃN HIỂN THỊ (Humanoid.DisplayName) chứa "magnetized" — bao trùm cả
--- "(Magnetized)" lẫn "(Overcharged Magnetized)". Đây là các biến thể tạm
--- thời của mob thường trong sự kiện Magnet, không có pos spawn riêng trong
--- _WorldOrigin.EnemySpawns, nên waypoint tuần tra được lấy từ TOÀN BỘ các
--- loại mob thường đã quét được (WorldSpawnData) — mỗi loại 1 điểm, KÈM
+-- Farm BẤT KỲ mob nào (không phân biệt loại gốc: Monkey, Pirate, ...) có tên
+-- chứa "(Magnetized)" hoặc "(Overcharged Magnetized)". Đây là các biến thể
+-- tạm thời của mob thường trong sự kiện Magnet, không có pos spawn riêng
+-- trong _WorldOrigin.EnemySpawns, nên waypoint tuần tra được lấy từ TOÀN BỘ
+-- các loại mob thường đã quét được (WorldSpawnData) — mỗi loại 1 điểm, KÈM
 -- đúng tên mob (mobName) gắn với điểm đó — vì mob magnet có thể xuất hiện từ
 -- bất kỳ bãi quái nào trong số đó.
 --
@@ -3983,36 +3982,26 @@ end
 --      trước đó đã xong và đổi sang điểm khác (không đứng chờ lại chỗ cũ).
 --   2) Không có mob magnet -> tuần tra qua các waypoint (ưu tiên gần nhất,
 --      đã đi qua thì bỏ qua tới khi hết vòng mới lặp lại):
---        - Tới nơi -> đứng chờ; đếm đúng số mob mang tên của CHÍNH loại mob
---          gắn với điểm đó (Instance.Name thật).
---        - Nếu sau MAGNET_NO_SPAWN_TIMEOUT giây vẫn chưa có mob nào (kể cả
---          đang spawn dở) -> coi như điểm này "hụt", đổi điểm khác ngay.
---        - Nếu đã có mob spawn: khi số lượng đạt đủ tổng số điểm spawn thật
---          đã quét được (hoặc quá MAGNET_MAX_DWELL giây) thì coi như xong.
---        - Xong (dù theo cách nào): nếu trong đó có mob DisplayName chứa
---          magnet thì để nhánh (1) ở đầu vòng lặp tự bắt và farm ngay lần
---          Heartbeat kế; nếu không có, đánh dấu điểm này đã đi qua và
---          chuyển sang điểm CHƯA đi qua gần nhất kế tiếp.
+--        - Tới nơi -> đứng chờ; KHÔNG dùng khoảng cách/bán kính cố định để
+--          đoán spawn xong hay chưa, mà đếm đúng số mob mang tên của CHÍNH
+--          loại mob gắn với điểm đó (so tên giống hệt cách GetNearestEnemy/
+--          WorldSpawnData đang khớp tên, tính luôn cả biến thể bị gắn hậu tố
+--          trạng thái như "(Magnetized)"). Hễ số lượng còn tăng thì coi là
+--          "đang spawn" và reset đồng hồ chờ ổn định; khi số lượng đứng yên
+--          liên tục MAGNET_STABLE_TIME giây (hoặc đã chờ quá MAGNET_MAX_DWELL
+--          giây phòng trường hợp đứng mãi) thì coi như mob của điểm đó đã
+--          spawn xong.
+--        - Spawn xong: nếu trong đó có mob tên chứa magnet thì để nhánh (1)
+--          ở đầu vòng lặp tự bắt và farm ngay lần Heartbeat kế (không cần
+--          check lại ở đây vì đầu mỗi Heartbeat đã quét toàn server rồi);
+--          nếu không có, đánh dấu điểm này đã đi qua và chuyển sang điểm
+--          CHƯA đi qua gần nhất kế tiếp.
 --        - Đi hết toàn bộ điểm (đã đi qua hết) -> tự động lặp lại từ đầu.
 --------------------------------------------------------------------
-
--- Lấy tên HIỂN THỊ của mob (Humanoid.DisplayName) — đây mới là chữ có
--- "(Magnetized)"/"(Overcharged Magnetized)", KHÁC với Instance.Name thật
--- (Name dùng để định danh loại mob/spawn point, ví dụ "Bandit").
-local function GetMobDisplayLabel(mob)
-    local hum = mob:FindFirstChildOfClass("Humanoid")
-    if hum and hum.DisplayName and hum.DisplayName ~= "" then
-        return hum.DisplayName
-    end
-    return mob.Name
-end
-
-local function IsMagnetName(label)
-    if not label then return false end
-    -- Không quan trọng tên mob gốc; chỉ cần NHÃN HIỂN THỊ chứa "magnetized"
-    -- (không phân biệt hoa/thường) là tính — bao trùm cả "(Magnetized)" lẫn
-    -- "(Overcharged Magnetized)".
-    return label:lower():find("magnetized", 1, true) ~= nil
+local function IsMagnetName(name)
+    if not name then return false end
+    return name:find("%(Magnetized%)", 1, false) ~= nil
+        or name:find("%(Overcharged Magnetized%)", 1, false) ~= nil
 end
 
 -- So tên mob thật (VD "Monkey", "Monkey (Magnetized)") với đúng tên mob gốc
@@ -4031,7 +4020,7 @@ local function GetNearestMagnetMob()
     local nearest, dist = nil, math.huge
     for _, mob in pairs(workspace.Enemies:GetChildren()) do
         if mob:FindFirstChild("Humanoid") and mob:FindFirstChild("HumanoidRootPart") and mob.Humanoid.Health > 0 then
-            if IsMagnetName(GetMobDisplayLabel(mob)) then
+            if IsMagnetName(mob.Name) then
                 local mag = (mob.HumanoidRootPart.Position - root.Position).Magnitude
                 if mag < dist then
                     dist = mag
@@ -4057,29 +4046,36 @@ local function CountMobsBySpawnName(baseName)
     return count
 end
 
-local MAGNET_MAX_DWELL         = 15   -- lưới an toàn: nếu vì lý do gì đó KHÔNG BAO GIỜ đạt đủ
-                                       -- số lượng full spawn (VD: người khác giết bớt, hoặc
-                                       -- WorldSpawnData quét thiếu điểm) thì vẫn thoát sau tối
-                                       -- đa bấy nhiêu giây, tránh đứng mãi 1 điểm.
-local MAGNET_NO_SPAWN_TIMEOUT  = 2.5  -- đến pos spawn mà sau ngần này giây vẫn chưa có mob
-                                       -- nào (kể cả đang spawn dở) -> đổi điểm khác luôn,
-                                       -- không cần đợi hết MAGNET_MAX_DWELL
-local MAGNET_REBUILD_EVERY     = 5    -- giây, khoảng cách giữa các lần quét lại toàn bộ waypoint
+local MAGNET_MAX_DWELL     = 15   -- lưới an toàn: nếu vì lý do gì đó KHÔNG BAO GIỜ đạt đủ
+                                   -- số lượng full spawn (VD: người khác giết bớt, hoặc
+                                   -- WorldSpawnData quét thiếu điểm) thì vẫn thoát sau tối
+                                   -- đa bấy nhiêu giây, tránh đứng mãi 1 điểm. KHÔNG dùng để
+                                   -- xác định "spawn xong" trong điều kiện bình thường nữa.
+local MAGNET_REBUILD_EVERY = 5    -- giây, khoảng cách giữa các lần quét lại toàn bộ waypoint
 
 local magnetFarmConn
 local _magnetWaypoints   = nil -- { {cf = CFrame, mobName = "Monkey", total = 3}, ... }
+                                -- total = tổng số điểm spawn (EnemySpawns) đã quét được cho
+                                -- đúng tên mob này -> dùng làm mốc "spawn ĐẦY ĐỦ"
 local _magnetIdx         = 1
+-- Lưu điểm đã đi qua THEO TÊN MOB (_magnetVisited[mobName] = true), KHÔNG lưu theo
+-- index nữa — vì _magnetWaypoints được quét & sắp xếp lại mỗi MAGNET_REBUILD_EVERY
+-- giây (thứ tự/khoảng cách có thể đổi), nếu lưu theo index thì sau khi rebuild, index
+-- cũ có thể trỏ sang 1 mobName khác -> bị đi lại điểm đã qua hoặc bỏ sót điểm chưa qua.
+-- Lưu theo tên thì luôn đúng bất kể waypoints được quét lại bao nhiêu lần.
 local _magnetVisited     = {}
-local _magnetArrivedAt   = 0
-local _magnetLastCount   = -1
+local _magnetArrivedAt   = 0  -- tick() lúc tới điểm đang đứng chờ (0 = chưa tới)
+local _magnetLastCount   = -1 -- số mob (theo tên) của điểm hiện tại ở lần check trước
 local _magnetLastScanAt  = 0
-local _magnetWasFarming  = false
+local _magnetWasFarming  = false -- vừa farm mob magnet ở vòng lặp trước hay chưa
 
 local function RebuildMagnetWaypoints(root)
     pcall(ScanWorldSpawns)
     local wps = {}
     for mobName, list in pairs(getgenv().WorldSpawnData or {}) do
         if list and #list > 0 then
+            -- 1 điểm để tween tới / 1 loại mob (bãi quái), nhưng lưu luôn TỔNG số
+            -- điểm spawn thật (#list) của tên mob này để biết khi nào spawn ĐẦY ĐỦ
             table.insert(wps, {cf = list[1], mobName = mobName, total = #list})
         end
     end
@@ -4101,7 +4097,7 @@ local function PickNearestUnvisitedMagnet(fromPos)
         if not _magnetVisited[wp.mobName] then hasUnvisited = true; break end
     end
     if not hasUnvisited then
-        _magnetVisited = {}
+        _magnetVisited = {} -- đã đi hết 1 vòng (theo tên mob) -> lặp lại từ đầu
     end
 
     local bestIdx, bestDist = 1, math.huge
@@ -4117,23 +4113,32 @@ local function PickNearestUnvisitedMagnet(fromPos)
     return bestIdx
 end
 
--- [DEBUG TẠM] In ra Name + DisplayName của mọi mob có DisplayName chứa
--- "magnetized", mỗi 2 giây 1 lần. Xoá khối [DEBUG TẠM] này nếu không cần nữa.
+-- [DEBUG TẠM] In ra tên thật (Instance.Name) + attribute của mọi mob có tên
+-- chứa "bandit"/"magnet" trong workspace.Enemies, mỗi 2 giây 1 lần. Dùng để
+-- xác nhận IsMagnetName có đang match đúng tên thật của mob hay không (chữ
+-- hiện trên đầu quái trong game nhiều khi chỉ là billboard hiển thị, không
+-- phải Instance.Name thật). Xoá cả khối [DEBUG TẠM] này sau khi debug xong.
 local _magnetDebugAt = 0
 local function DebugDumpMagnetMobs()
     if tick() - _magnetDebugAt < 2 then return end
     _magnetDebugAt = tick()
     local found = false
     for _, mob in pairs(workspace.Enemies:GetChildren()) do
-        local label = GetMobDisplayLabel(mob)
-        if label:lower():find("magnetized", 1, true) then
+        local n = mob.Name:lower()
+        if n:find("bandit") or n:find("magnet") then
             found = true
-            print(string.format("[MagnetDebug] Name=%q | DisplayName=%q | IsMagnetName=%s",
-                mob.Name, label, tostring(IsMagnetName(label))))
+            local attrs = {}
+            pcall(function()
+                for k, v in pairs(mob:GetAttributes()) do
+                    table.insert(attrs, k .. "=" .. tostring(v))
+                end
+            end)
+            print(string.format("[MagnetDebug] mob.Name=%q | IsMagnetName=%s | attrs={%s}",
+                mob.Name, tostring(IsMagnetName(mob.Name)), table.concat(attrs, ", ")))
         end
     end
     if not found then
-        print("[MagnetDebug] Không thấy mob nào có DisplayName chứa 'magnetized' trong workspace.Enemies")
+        print("[MagnetDebug] Không thấy mob nào có tên chứa 'bandit'/'magnet' trong workspace.Enemies")
     end
 end
 
@@ -4169,6 +4174,9 @@ function startMagnetTokenFarm()
             end
             getgenv().CurrentTargetMob = nil
 
+            -- Vừa farm xong mob magnet ở vòng lặp trước (giờ không còn nữa)
+            -- -> lưu tên mob của điểm đang đứng dở là đã qua, đổi sang điểm
+            -- khác luôn thay vì đứng chờ lại chính chỗ cũ.
             if _magnetWasFarming then
                 _magnetWasFarming = false
                 if _magnetWaypoints and _magnetWaypoints[_magnetIdx] then
@@ -4220,17 +4228,12 @@ function startMagnetTokenFarm()
             -- số điểm spawn thật đã quét được cho đúng tên mob này) mới coi là
             -- xong, KHÔNG đoán theo "đứng yên bao lâu" nữa. MAGNET_MAX_DWELL chỉ
             -- là lưới an toàn phòng trường hợp không bao giờ đạt đủ số lượng.
-            local spawnDone  = (wp.total > 0 and curCount >= wp.total) or (dwell >= MAGNET_MAX_DWELL)
-            -- [FIX] Đến nơi mà sau MAGNET_NO_SPAWN_TIMEOUT giây vẫn chưa thấy
-            -- mob nào xuất hiện (kể cả đang spawn dở) -> đổi điểm ngay, không
-            -- cần chờ tới MAGNET_MAX_DWELL.
-            local noSpawnYet = (curCount == 0 and dwell >= MAGNET_NO_SPAWN_TIMEOUT)
+            local spawnDone = (wp.total > 0 and curCount >= wp.total) or (dwell >= MAGNET_MAX_DWELL)
 
-            if spawnDone or noSpawnYet then
-                -- Spawn đã xong (hoặc hụt spawn, hoặc đã farm hết mob magnet ở
-                -- nhánh (1) rồi mới rơi xuống đây) -> lưu tên mob của điểm này
-                -- là đã đi qua, không quay lại nữa (trừ khi hết vòng), rồi đổi
-                -- sang điểm gần nhất kế.
+            if spawnDone then
+                -- Spawn đã xong (hoặc đã farm hết mob magnet ở nhánh (1) rồi mới
+                -- rơi xuống đây) -> lưu tên mob của điểm này là đã đi qua, không
+                -- quay lại nữa (trừ khi hết vòng), rồi đổi sang điểm gần nhất kế.
                 _magnetVisited[wp.mobName] = true
                 _magnetIdx       = PickNearestUnvisitedMagnet(root.Position)
                 _magnetArrivedAt = 0
@@ -4538,36 +4541,6 @@ end
 local dungeonFarmConn
 local _dungeonExitReachedTime = 0  -- timestamp khi đến exit, dùng cho delay 1s
 
--- [FIX] Pyromaniac né nổ khi máu < 30%: tween lên Y+500, đợi 1.5s rồi farm lại bth
-local _pyroEvading = false
-local _pyroHandled = setmetatable({}, {__mode = "k"}) -- tránh trigger lặp lại cùng 1 mob
-
-local function CheckPyromaniacEvade(enemies)
-    for _, enemy in ipairs(enemies) do
-        if enemy.Name == "Pyromaniac" and enemy:FindFirstChild("Humanoid") then
-            local hum = enemy.Humanoid
-            if hum.Health > 0 and hum.MaxHealth > 0 then
-                local pct = hum.Health / hum.MaxHealth
-                if pct < 0.3 and not _pyroHandled[enemy] then
-                    _pyroHandled[enemy] = true
-                    _pyroEvading = true
-                    task.spawn(function()
-                        local root = getRoot()
-                        if root then
-                            local upCF = CFrame.new(root.Position + Vector3.new(0, 500, 0))
-                            TweenObject(root, upCF, getgenv().FlySpeed)
-                        end
-                        task.wait(1.5)
-                        _pyroEvading = false
-                    end)
-                    return true
-                end
-            end
-        end
-    end
-    return false
-end
-
 local function GetCurrentZone()
     local root = getRoot()
     if not root then return nil end
@@ -4626,6 +4599,7 @@ local function GetValidDungeonEnemies()
     for _, enemy in ipairs(workspace.Enemies:GetChildren()) do
         if enemy:FindFirstChild("Humanoid") and enemy:FindFirstChild("HumanoidRootPart") then
             if enemy.Humanoid.Health > 0 then
+                -- Bỏ qua Blank Buddy, và PropHitboxPlaceholder (xử lý riêng ở priority 1)
                 if enemy.Name == "Blank Buddy" or enemy.Name == "PropHitboxPlaceholder" then
                     continue
                 end
@@ -4634,6 +4608,7 @@ local function GetValidDungeonEnemies()
         end
     end
 
+    -- Sắp xếp theo khoảng cách gần nhất trước
     if root and #validEnemies > 1 then
         local playerPos = root.Position
         table.sort(validEnemies, function(a, b)
@@ -4667,9 +4642,7 @@ function startDungeonFarm()
         pcall(function()
             local root = getRoot()
             if not root then return end
-
-            if _pyroEvading then return end -- đang né nổ Pyromaniac, chờ tween lên xong
-
+            
             local currentZone = GetCurrentZone()
             if not currentZone then return end
             
@@ -4679,18 +4652,21 @@ function startDungeonFarm()
             local exitRoot = exitTeleporter:FindFirstChild("Root")
             if not exitRoot then return end
             
+            -- Kiểm tra đã đến exit teleporter (BBG visible)
             if exitRoot:FindFirstChild("BBG") then
                 TweenObject(root, exitRoot.CFrame, getgenv().FlySpeed)
+                -- Delay 1s tại exit (timestamp-based, tránh coroutine stacking)
                 if _dungeonExitReachedTime == 0 then
                     _dungeonExitReachedTime = tick()
                 end
                 if tick() - _dungeonExitReachedTime < 1 then
-                    return
+                    return  -- Đang chờ đủ 1s tại exit
                 end
+                -- Đã đủ 1s → reset timer, teleporter tự xử lý zone transition
                 _dungeonExitReachedTime = 0
                 return
             else
-                _dungeonExitReachedTime = 0
+                _dungeonExitReachedTime = 0  -- Reset khi BBG biến mất (đã qua zone mới)
             end
             
             -------- PRIORITY 1: PROP HITBOX PLACEHOLDER (Highest, thay thế Shrine/Destroy) --------
@@ -4707,11 +4683,8 @@ function startDungeonFarm()
             -------- PRIORITY 2: FARM ALL MOB (không giới hạn phạm vi) --------
             local enemies = GetValidDungeonEnemies()
 
-            if CheckPyromaniacEvade(enemies) then
-                return -- vừa trigger né nổ, không farm tiếp frame này
-            end
-
             if #enemies > 0 then
+                -- Fly đến mob gần nhất, attack tất cả mob còn sống
                 local nearest = enemies[1]
                 getgenv().CurrentTargetMob = nearest
 
@@ -4729,6 +4702,7 @@ function startDungeonFarm()
                     end
                 end
             else
+                -------- HẾT MOB -> FLY ĐẾN EXIT --------
                 getgenv().CurrentTargetMob = nil
                 if exitRoot then
                     TweenObject(root, exitRoot.CFrame, getgenv().FlySpeed)
